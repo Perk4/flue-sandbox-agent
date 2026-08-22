@@ -1,0 +1,20 @@
+{
+  "name": "flue-sandbox-agent",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "test": "node --test --experimental-strip-types --disable-warning=ExperimentalWarning src/agent.test.ts",
+    "typecheck": "tsc --noEmit",
+    "run": "node --experimental-strip-types --disable-warning=ExperimentalWarning src/run.ts"
+  },
+  "dependencies": {
+    "just-bash": "^3.4.2"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.14",
+    "typescript": "^5.8.3"
+  }
+}
