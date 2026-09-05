@@ -1,77 +1,199 @@
-**Yes.** The Astro team (creators of Flue) and the Flue/Cloudflare community provide a clear, recommended architecture and best practices for deploying Flue on Cloudflare infrastructure.
+# Flue 2.0 on Cloudflare
 
-Flue is a TypeScript agent-harness framework from the Astro team (now part of Cloudflare). It is designed as a multi-target framework (“write once, deploy anywhere”), with first-class support for Cloudflare Workers. On Cloudflare it maps cleanly onto Durable Objects + the Agents SDK.
+Facts for the Cloudflare target. Build steps live in [plan.md](plan.md). End-to-end data movement lives in [data-flow.md](data-flow.md). Official guides: [Cloudflare target](https://flueframework.com/docs/guide/cloudflare-target/), [Deploy on Cloudflare](https://flueframework.com/docs/ecosystem/deploy/cloudflare/), [Routing](https://flueframework.com/docs/guide/routing/), [Agent Hooks API](https://flueframework.com/docs/reference/agent-hooks-api/).
 
-### Recommended Architecture
+Flue 2.0 is the current stable release (npm `@flue/runtime@2.0.3` as of this writing). Agents are capitalized functions in `'use agent'` modules. The 1.0 Beta `defineAgent` API is retired.
 
-- **Core model**: Each Flue agent becomes its own **Durable Object** class (generated automatically).  
-  - One agent instance / conversation gets isolated persistent state, durable execution, and global addressability.  
-  - Conversations, streams, attachments, and accepted submissions live in the Durable Object’s SQLite storage.  
-  - No separate `db.ts` is used (or allowed) on the Cloudflare target.
+## Build
 
-- **Build & runtime stack**:
-  - Vite + `@flue/vite` plugin (must come **before** `@cloudflare/vite-plugin`).
-  - Official Cloudflare Vite plugin owns `workerd` local dev, build output, preview, and deploy.
-  - Generated Worker entry registers scanned agents (`'use agent'` modules) and exports one Durable Object class per agent.
-  - Your authored `wrangler.jsonc` is merged with generated bindings; Flue never overwrites your migration history.
+Vite owns the build. Plugin order is `plugins: [flue(), cloudflare()]`. The wrong order is an error.
 
-- **Execution model**:
-  - Durable admission of prompts + `dispatch(...)` into a per-conversation queue.
-  - Work runs inside the Durable Object (alarm-driven for the full response after admission).
-  - Recovery via Durable Streams / fiber-style checkpointing so interrupted turns can resume safely.
-  - Optional service bindings for private agent-to-agent or Worker-to-agent calls.
+`flue()` scans `'use agent'` modules, generates the Worker entry, and merges bindings into `.flue-vite.wrangler.jsonc`. The Cloudflare plugin owns `vite dev`, `vite build`, and deployable output.
 
-- **Sandbox options** (progressive, choose the lightest that works):
-  1. Empty / virtual in-memory sandbox (default, fastest/cheapest) — good for most prompt/response or tool-light agents.
-  2. Virtual sandbox with R2-backed or inline context + `@cloudflare/shell` / Computer for durable filesystem ops inside the DO.
-  3. Full **Cloudflare Sandbox** (container via `@cloudflare/sandbox`) only when you need a real Linux environment (git, package managers, native binaries, browsers, etc.). This is a first-class build target and requires exporting the Sandbox class + bindings/migrations.
+Gitignore `.flue-vite/` and `.flue-vite.wrangler.jsonc`. Flue never writes authored `wrangler.jsonc`.
 
-- **AI models**: Prefer `cloudflare/@cf/...` (Workers AI) or route through AI Gateway for caching, logging, rate limits, and budgets. No external API keys needed for Workers AI.
+Minimum `compatibility_date` is `2026-04-01`. Flue validates it at build. For dates on or after `2026-08-04`, `nodejs_compat` is on by default.
 
-### Key Best Practices (from official docs)
+`vite dev` runs in workerd. `flue run` is Node-local and fails on `cloudflare:*` imports.
 
-1. **Vite config order**  
-   ```ts
-   plugins: [flue(), cloudflare()]
-   ```
-   Wrong order is an error.
+## Agent identity
 
-2. **`wrangler.jsonc` essentials** (you own this file):
-   - `"compatibility_flags": ["nodejs_compat"]`
-   - Append-only **migrations** using `new_sqlite_classes` for every generated agent class (e.g. `FlueSupportChatAgent`).
-   - Never rewrite/reorder deployed migrations. Use `renamed_classes` / `deleted_classes` when changing agent identity.
-   - Declare only your own resources (R2, Queues, extra DOs, etc.). Do **not** hand-author the generated `FLUE_*` bindings.
+`export function Assistant()` generates class `FlueAssistantAgent` and binding `env.FLUE_ASSISTANT_AGENT`. An `agentName` static pins the identity if you rename the function.
 
-3. **Agent identity & migrations**  
-   - Class name and binding derive from the exported function name (or explicit `agentName`).  
-   - Renaming an agent is a storage-identity change → migration required.  
-   - Adding an agent = agent code + mount in `app.ts` (unless dispatch-only) + new migration tag.
+Renaming the function or `agentName` is a storage-identity change. Moving the mount path is not.
 
-4. **Local development**  
-   `vite dev` (with Cloudflare plugin) runs in workerd. Agent discovery and config changes regenerate cleanly without restart loops.
+Adding an HTTP-facing agent is three edits: the `'use agent'` module, the `app.ts` mount, and a new migration tag.
 
-5. **Observability**  
-   Enable Workers observability. Use built-in `createCloudflareTracing()` and OpenTelemetry adapters. Whole agent responses are attributable to a single invocation.
+## Migrations
 
-6. **Sandbox guidance**  
-   Start virtual; only escalate to containers when needed. Most agents do not need full Linux.
+Generated agent classes need Durable Object SQLite. Introduce them with `new_sqlite_classes`, not `new_classes`.
 
-7. **Deployment flow**  
-   `vite build` → deploy via the Cloudflare plugin / Wrangler against the generated config. See the official walkthrough at `https://flueframework.com/docs/ecosystem/deploy/cloudflare/`.
+Migration history is append-only. Never rewrite or reorder deployed tags. Rename with `renamed_classes`. Remove with `deleted_classes`.
 
-8. **Other tips**  
-   - Use service bindings for internal calls.  
-   - Keep agent responses I/O-bound (raise `cpu_ms` only if heavy compute is required).  
-   - Gitignore `.flue-vite/` and `.flue-vite.wrangler.jsonc`.  
-   - Blueprints (`flue add sandbox cloudflare`, etc.) give AI-agent-friendly step-by-step wiring.
+Do not hand-author generated `FLUE_*` bindings. A colliding name is a build error. Declare your own resources only (R2, extra Durable Objects, Queues).
 
-### Official Sources
+Cloudflare also has a declarative `exports` lifecycle API. It is mutually exclusive with tagged `migrations`. Flue's authored `wrangler.jsonc` still uses tagged `new_sqlite_classes`.
 
-- Cloudflare target guide: https://flueframework.com/docs/guide/cloudflare-target/ (or /targets/cloudflare/)
-- Deploy guide: https://flueframework.com/docs/guide/deploy/
-- Full Cloudflare deploy walkthrough: https://flueframework.com/docs/ecosystem/deploy/cloudflare/
-- Cloudflare blog announcement: https://blog.cloudflare.com/agents-platform-flue-sdk/
-- GitHub: https://github.com/withastro/flue
+## Routing
 
-This architecture is the one the Astro/Flue team actively maintains and recommends. It leverages Cloudflare’s Durable Objects, Agents SDK, Workers AI, and sandbox primitives so you get production-grade durability, scaling, and observability without managing servers yourself. For the latest details (Flue is under active development), check the docs linked above.
+`src/app.ts` is the HTTP entry. Mount agents with `createAgentRouter` from `@flue/runtime/routing`:
 
+```ts
+app.route('/agents/assistant', createAgentRouter(Assistant));
+```
+
+Conversation URL: `{mount}/{conversationId}`. Example: `/agents/assistant/user-123`.
+
+| Route | Purpose |
+| --- | --- |
+| `POST /:id` | Admit one message. Returns `202`. |
+| `GET /:id` | Snapshot, updates, or live stream. |
+| `HEAD /:id` | Stream metadata. |
+| `POST /:id/abort` | Abort in-flight and queued work. |
+| `GET /:id/attachments/:attachmentId` | Attachment bytes. |
+
+Raw POST body is `{ "kind": "user", "body": "..." }`. `@flue/sdk` `send()` wraps that as `{ message: { kind, body } }`.
+
+A registered agent with no mount is still reachable through `dispatch()`.
+
+`cloudflare.ts` may export extra Durable Object classes and a `scheduled` handler. It must not export a default `fetch`. HTTP stays in `app.ts`.
+
+## Admission and recovery
+
+`POST` durably queues the message and returns `202` with `streamUrl`, `offset`, and `submissionId`. The client does not own execution. Disconnect does not cancel work.
+
+After admission, Flue wakes the Durable Object on a zero-delay alarm and runs the full response there. Platform traces attribute the whole response to that invocation.
+
+Direct HTTP prompts and `dispatch()` share one per-conversation queue.
+
+Recovery is conservative. Flue requeues only when it can prove the input was not applied. Uncertain model or tool work is not replayed. An interruption advisory is recorded instead.
+
+Flue stamps `flue_meta` in the Durable Object database. There is no in-place format migration. A rollback to an older format version will not open a newer database.
+
+## Persistence
+
+On Cloudflare there is no `db.ts`. A source-root `db.ts` is rejected at build.
+
+The canonical conversation stream, immutable attachments, and accepted submissions live in the owning Durable Object's SQLite.
+
+Application facts that must survive a restart go in `usePersistentState`. Large blobs go in R2. A SQL row, BLOB, or string in the Durable Object cannot exceed 2 MB.
+
+Paid plan: 10 GB SQLite per object. Free plan: 1 GB per object, 5 GB account total.
+
+The default sandbox filesystem is not durable just because conversation state is. Attach Computer or a container sandbox when files must survive.
+
+## Client protocol
+
+`createFlueClient({ url })` from `@flue/sdk` addresses one conversation. Methods: `send`, `wait`, `history`, `observe`, `abort`, `attachmentUrl`.
+
+`useFlueAgent({ url })` from `@flue/react` wraps the same client. Live transport is SSE, with long-poll as `live: 'long-poll'`. Flue has no chat WebSocket.
+
+Wire parts: `text`, `reasoning`, `dynamic-tool`, `file`. Stream app-specific cards with `useDataWriter(name, { schema })` as `data-*` parts. Tool output for custom UI lives on `dynamic-tool`.
+
+Partial text while streaming is best-effort. The completed canonical assistant message is authoritative.
+
+## Auth
+
+A mounted agent has no built-in authentication. Protect the mount with Hono middleware before `createAgentRouter`. Check both who the caller is and whether that caller owns the conversation id. Ids are caller-chosen path segments.
+
+After admission, Flue uses an internal request. Original headers, cookies, query parameters, and body are not replayed into the Durable Object. Authenticate before admission.
+
+The agent router sets no CORS headers. `vite dev` is permissive on localhost. Production cross-origin callers need CORS that exposes `Stream-Next-Offset`, `Stream-Up-To-Date`, and `Location`.
+
+## Hooks
+
+All hooks come from `@flue/runtime`. Call them only while the agent function renders.
+
+| Hook | Role |
+| --- | --- |
+| `useModel` | Required, exactly once. Specifier `'provider-id/model-id'`. |
+| `useSandbox` | Execution environment. Absent means no filesystem tools. |
+| `useTool` | Model-callable tool. |
+| `useSkill` | Progressive skill catalog. |
+| `useSubagent` | Delegate for the `task` tool. |
+| `useInstruction` | Always-on extra instruction text. |
+| `usePersistentState` | Durable per-instance JSON state. |
+| `useInitialData` | Creation payload, constant for the instance. |
+| `useDelivery` | Message currently in front of the model. |
+| `useDispatchMessage` | Dispatch bound to this instance. |
+| `useDataWriter` | Named client-facing data part. |
+| `useMcpConnection` | Remote MCP tools. |
+| `useAgentStart` / `useAgentFinish` | Awaited seams around a delivered message. |
+| `useResponseStart` / `useResponseFinish` | Synchronous observers of the response. |
+
+There is no `useState`. Durable state is `usePersistentState(name, defaultValue)`.
+
+The agent function returns a string. That string is the base instructions.
+
+Tools use Valibot `input` and `run({ data, harness })`. Optional flags: `harness: true`, `durable: true`. A bare object return from `run` throws. Return a string or `{ output }`.
+
+Skills are a static `SKILL.md` import or `defineSkill(...)`. `useSkill('./file.md')` is invalid. A bare `.md` import is a string. Pass always-on markdown to `useInstruction`.
+
+`useDataWriter` names are part of render identity. Declare the same names on every render.
+
+## Sandbox
+
+Start with no sandbox, or with `useSandbox(bash(() => new Bash({ fs: new InMemoryFs() })))`.
+
+Durable workspace without a container: `flue add sandbox cloudflare-computer`. Import helpers from the generated adapter, not from `@flue/runtime/cloudflare`.
+
+Full Linux: `flue add sandbox cloudflare`, install `@cloudflare/sandbox`, export `Sandbox` from `cloudflare.ts`, wrap with `cloudflareSandbox(getSandbox(env.Sandbox, id))`.
+
+`flue add` prints a markdown blueprint. It does not install packages.
+
+## Scheduling
+
+Flue has no scheduler of its own.
+
+Per-conversation wakes: `export const cloudflare = extend({ base })` from `@flue/runtime/cloudflare`, then Agents SDK `this.schedule()` or `this.scheduleEvery()` inside `onStart`. Do not override `fetch`, `onRequest`, `onFiberRecovered`, or `alarm`. Native SDK callbacks do not receive a Flue harness.
+
+`schedule` and `scheduleEvery` share the Durable Object's one alarm with Flue's response runner. A callback due mid-response fires after that response settles. Delivery is durable. Timeliness is not guaranteed while the agent is busy. `queue()` is not alarm-driven.
+
+Worker-level cron belongs in `cloudflare.ts` `scheduled`. From there, `dispatch(Agent, { id, message })`. Do not add a cron trigger only to call `scheduleEvery`.
+
+Raw Durable Object `setAlarm` holds one timestamp per object, does not repeat, and is at-least-once (up to 6 retries). Make handlers idempotent.
+
+## Models
+
+Workers AI on this target: `useModel('cloudflare/@cf/moonshotai/kimi-k2.6')`. No provider API key. Billing follows the Worker account. `kimi-k2.6` requires Workers Paid or prepaid AI Gateway credits. Default rate limit is 20 requests per minute (50 with prepaid unified billing).
+
+Flue enables AI Gateway for `cloudflare/...` models by default.
+
+Local `wrangler dev` still bills Workers AI inference.
+
+## Voice
+
+`@cloudflare/voice` is a Beta mixin for the Agents SDK **class** `Agent`: `withVoice(Agent)`. It is not a Flue hook. Wrapping a Flue function, or subclassing the generated Flue Durable Object, fights Flue-owned `fetch` and `alarm`.
+
+Voice transport is binary WebSocket PCM, 16 kHz mono 16-bit. Official defaults: `WorkersAIFluxSTT` (`@cf/deepgram/flux`) and `WorkersAITTS` (`@cf/deepgram/aura-1`). Aura-2 exists as `@cf/deepgram/aura-2-en` and `aura-2-es`. A Realtime SFU is optional and a different product. Voice docs state that no SFU is required.
+
+`@cf/openai/whisper-large-v3-turbo` is batch ASR. It is not the `withVoice` streaming path. Its documented outputs are `text`, `segments`, `word_count`, and `vtt`. It does not take OpenAI `word_timestamps` or `timestamp_granularities`. Older `@cf/openai/whisper` documents a `words[]` array.
+
+Published voice-example `first_audio_ms` is about 950 ms. That is STT plus LLM plus TTS, not TTS time-to-first-byte.
+
+Batch transcription as a Flue tool, then `dispatch` of the transcript into `Assistant`, keeps voice off the Flue HTTP stream.
+
+## Limits that affect this app
+
+- Durable Object SQL value: 2 MB
+- Paid SQLite per object: 10 GB
+- Alarm, cron, and queue-consumer wall time: 15 minutes
+- CPU: 30 seconds default, raise with `limits.cpu_ms` (max 5 minutes on Paid). I/O does not count.
+- Memory: 128 MB per isolate
+- Simultaneous outgoing connections per invocation: 6
+- Vectorize: 20 million vectors per index, 1536 dimensions. Writes are not immediately queryable (WAL, median under 30 seconds).
+- WebSocket incoming message: 32 MiB
+- `getByName` / `idFromName` names above 1024 bytes do not surface on `ctx.id.name`
+
+## Observability
+
+```jsonc
+{
+	"observability": {
+		"enabled": true,
+		"traces": { "enabled": true }
+	}
+}
+```
+
+`createCloudflareTracing()` is installed by default on the Cloudflare target. It emits `invoke_agent`, `chat`, and `execute_tool` spans. `@flue/opentelemetry` is a separate package. `tracing: false` in `flue.config.ts` removes agent tracing from the build.

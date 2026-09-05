@@ -1,19 +1,14 @@
 # flue-sandbox-agent
 
-A readable Flue-shaped agent. Four calls, one in-memory sandbox, no product UI.
+This repo has two layers.
 
-The sandbox is Vercel just-bash plus `InMemoryFs`. `grep` and file reads run in process. They never touch the host disk.
+**Code today** is a local Flue-shaped stub. `src/flue.ts` copies a few `@flue/runtime` hook names so tests can run on Node 22.14. The sandbox is `just-bash` plus `InMemoryFs`. Nothing here is a Cloudflare Worker.
 
-`src/flue.ts` is a stub of `@flue/runtime`. The real package wants a `'use agent'` compiler transform and Node `>=22.19`. This repo is Node 22.14-safe CI, so the stub keeps the same hook names and the test still hits just-bash.
+**The product to build** is a Flue 2.0 agent on Cloudflare Workers. Each conversation is one Durable Object. Chat uses HTTP admission and SSE or long-poll. Artifacts live in `usePersistentState` and R2. Follow [plan.md](plan.md). Look up APIs and limits in [best-practices.md](best-practices.md). How data moves is in [data-flow.md](data-flow.md).
 
-## Four primitives
+Do not grow `src/flue.ts` into that product. Scaffold a real Flue app with `@flue/cli` on Node 22.19 or newer.
 
-1. `NotesAgent` in `src/agent.ts`, composed with `useModel`
-2. One `defineTool`, `read_note`, mounted with `useTool`
-3. `useSandbox` wrapping `Bash` + `InMemoryFs`
-4. `src/run.ts --message`, a stub of `flue run --message`
-
-## How to run
+## Run the stub
 
 ```bash
 npm install
@@ -29,10 +24,10 @@ ship the flue agent
 
 If the message names another `/notes/...` path, the runner passes that path to `read_note`. Otherwise it reads `/notes/todo.txt`.
 
-## How to verify
+## Verify the stub
 
 ```bash
 npm test
 ```
 
-The test renders `NotesAgent`, calls the mounted `read_note` tool, and checks that `SANDBOX-ONLY-TOKEN-7f3a` comes from memory while `/notes/secret-token.txt` is absent on the host. It also runs `grep` inside just-bash against the same file.
+The test renders `NotesAgent`, calls `read_note`, and checks that `SANDBOX-ONLY-TOKEN-7f3a` comes from memory while `/notes/secret-token.txt` is absent on the host.
