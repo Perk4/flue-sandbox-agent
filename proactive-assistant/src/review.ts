@@ -92,7 +92,8 @@ export function reviewDispatchRequest(instanceName: string): ReviewDispatchReque
 }
 
 /**
- * Stamp `lastScheduleAt` then dispatch. Alarm retries in the same hour skip.
+ * Dispatch, then stamp `lastScheduleAt`. A throw before admission leaves
+ * the stamp unset so an alarm retry can fire. A later same-hour retry skips.
  * The stamp is not a Note and must not publish a Card.
  */
 export async function runHeartbeat(
@@ -104,7 +105,7 @@ export async function runHeartbeat(
 	if (!shouldDispatchReview(host.state.lastScheduleAt, now)) {
 		return 'skipped';
 	}
-	host.setState({ ...host.state, lastScheduleAt: now });
 	await dispatchReview(request);
+	host.setState({ ...host.state, lastScheduleAt: now });
 	return 'dispatched';
 }

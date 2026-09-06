@@ -100,6 +100,22 @@ test('lastScheduleAt is a silent fire stamp and does not publish a Card', async 
 	assert.equal('notebook' in agent.state, false);
 });
 
+test('a dispatch that throws does not stamp lastScheduleAt', async () => {
+	const agent = host('user-alice');
+	await assert.rejects(
+		() =>
+			runHeartbeat(agent, async () => {
+				throw new Error('admission failed');
+			}, 1_000),
+		/admission failed/,
+	);
+	assert.equal(agent.state.lastScheduleAt, undefined);
+	assert.deepEqual(agent.stamps, []);
+	const retry = await runHeartbeat(agent, async () => {}, 1_001);
+	assert.equal(retry, 'dispatched');
+	assert.equal(agent.state.lastScheduleAt, 1_001);
+});
+
 test('a second heartbeat in the same hour is skipped', async () => {
 	const calls: ReviewDispatchRequest[] = [];
 	const now = REVIEW_INTERVAL_SECONDS * 1000;
