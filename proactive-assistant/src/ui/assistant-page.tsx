@@ -2,41 +2,38 @@ import { useFlueAgent } from '@flue/react';
 import { type FormEvent, useState } from 'react';
 import { instanceIdFor } from '../identity.ts';
 import { latestCatalogNotebook, notesInCatalog } from './latest-catalog.ts';
+import {
+	clearStoredUserId,
+	isAuthFailure,
+	readStoredUserId,
+	writeStoredUserId,
+} from './session-identity.ts';
 import { textOf, visibleChatRows } from './visible-chat.ts';
-
-const SESSION_USER_KEY = 'assistant-user-id';
 
 function assistantUrl(userId: string): string {
 	return `/agents/assistant/${instanceIdFor(userId)}`;
 }
 
-function readStoredUserId(): string | null {
-	try {
-		return sessionStorage.getItem(SESSION_USER_KEY);
-	} catch {
-		return null;
-	}
-}
-
 export function AssistantPage() {
 	const [userId, setUserId] = useState<string | null>(readStoredUserId);
+
+	function signOut() {
+		clearStoredUserId();
+		setUserId(null);
+	}
 
 	if (userId === null) {
 		return (
 			<SignIn
 				onSignedIn={(next) => {
-					try {
-						sessionStorage.setItem(SESSION_USER_KEY, next);
-					} catch {
-						// Cookie still authenticates this tab.
-					}
+					writeStoredUserId(next);
 					setUserId(next);
 				}}
 			/>
 		);
 	}
 
-	return <AssistantSession userId={userId} />;
+	return <AssistantSession onSignOut={signOut} userId={userId} />;
 }
 
 function SignIn({ onSignedIn }: { onSignedIn: (userId: string) => void }) {
@@ -46,8 +43,8 @@ function SignIn({ onSignedIn }: { onSignedIn: (userId: string) => void }) {
 
 	async function submit(event: FormEvent) {
 		event.preventDefault();
-		const userId = input.trim();
-		if (!userId) {
+		const nextUserId = input.trim();
+		if (!nextUserId) {
 			return;
 		}
 		setPending(true);
@@ -56,20 +53,13 @@ function SignIn({ onSignedIn }: { onSignedIn: (userId: string) => void }) {
 			const response = await fetch('/session', {
 				method: 'POST',
 				headers: { 'content-type': 'application/json' },
-				body: JSON.stringify({ userId }),
+				body: JSON.stringify({ userId: nextUserId }),
 			});
 			const body: unknown = await response.json().catch(() => undefined);
 			if (!response.ok) {
-				const message =
-					typeof body === 'object' &&
-					body !== null &&
-					'error' in body &&
-					typeof body.error === 'string'
-						? body.error
-						: `sign-in failed (${String(response.status)})`;
-				throw new Error(message);
+				throw new Error(signInErrorMessage(body, response.status));
 			}
-			onSignedIn(userId);
+			onSignedIn(nextUserId);
 		} catch (cause) {
 			setError(cause instanceof Error ? cause.message : String(cause));
 		} finally {
@@ -100,14 +90,34 @@ function SignIn({ onSignedIn }: { onSignedIn: (userId: string) => void }) {
 	);
 }
 
-function AssistantSession({ userId }: { userId: string }) {
+function signInErrorMessage(body: unknown, status: number): string {
+	if (
+		typeof body === 'object' &&
+		body !== null &&
+		'error' in body &&
+		typeof body.error === 'string'
+	) {
+		return body.error;
+	}
+	return `sign-in failed (${String(status)})`;
+}
+
+function AssistantSession({
+	onSignOut,
+	userId,
+}: {
+	onSignOut: () => void;
+	userId: string;
+}) {
 	const url = assistantUrl(userId);
 	const agent = useFlueAgent({ url });
 	const [input, setInput] = useState('');
+	const [sendError, setSendError] = useState<unknown>();
 	const rows = visibleChatRows(agent.messages);
 	const notebook = latestCatalogNotebook(agent.messages);
 	const notes = notesInCatalog(notebook);
 	const busy = agent.status === 'submitted' || agent.status === 'streaming';
+	const authFailed = isAuthFailure(agent.error) || isAuthFailure(sendError);
 
 	async function submit(event: FormEvent) {
 		event.preventDefault();
@@ -116,10 +126,12 @@ function AssistantSession({ userId }: { userId: string }) {
 			return;
 		}
 		setInput('');
+		setSendError(undefined);
 		try {
 			await agent.sendMessage(body);
-		} catch {
+		} catch (cause) {
 			setInput(body);
+			setSendError(cause);
 		}
 	}
 
@@ -130,6 +142,9 @@ function AssistantSession({ userId }: { userId: string }) {
 				<p className="meta">
 					{userId} · {url} · {agent.status}
 				</p>
+				<button onClick={onSignOut} type="button">
+					Sign out
+				</button>
 			</header>
 			<div className="panes">
 				<section className="chat" aria-label="Chat">
@@ -148,11 +163,20 @@ function AssistantSession({ userId }: { userId: string }) {
 							placeholder="Send a message"
 							value={input}
 						/>
-						<button disabled={busy || !input.trim()} type="submit">
+						<button disabled={busy || authFailed || !input.trim()} type="submit">
 							Send
 						</button>
 					</form>
-					{agent.error ? <p className="error">{agent.error.message}</p> : null}
+					{authFailed ? (
+						<p className="error">
+							Session expired or this User does not own this Assistant.{' '}
+							<button onClick={onSignOut} type="button">
+								Sign in again
+							</button>
+						</p>
+					) : agent.error ? (
+						<p className="error">{agent.error.message}</p>
+					) : null}
 				</section>
 				<aside className="notes" aria-label="Notebook">
 					<h2>Notebook</h2>

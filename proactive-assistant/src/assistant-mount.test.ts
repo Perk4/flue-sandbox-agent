@@ -39,6 +39,9 @@ test('same-origin Assistant page uses useFlueAgent({ url }) with no token', () =
 	assert.doesNotMatch(page, /createFlueClient/);
 	assert.match(page, /visibleChatRows\(/);
 	assert.match(page, /latestCatalogNotebook\(/);
+	assert.match(page, /clearStoredUserId/);
+	assert.match(page, /Sign in again/);
+	assert.match(page, /Sign out/);
 });
 
 test('/agents/* reaches the Worker before the SPA fallback', () => {
