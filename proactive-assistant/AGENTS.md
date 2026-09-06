@@ -6,8 +6,9 @@ This is a [Flue](https://flueframework.com) project: agents are TypeScript funct
 
 - `src/agents/` — agent modules. A module whose first line is the `'use agent'` directive exports agents: every exported capitalized function is one, and the function name is its durable identity.
 - `src/app.ts` — the route map; every route is mounted here explicitly.
+- `src/ui/` — same-origin Assistant page (`useFlueAgent({ url })`).
 - `src/cloudflare.ts` — Worker-level exports and non-HTTP handlers.
-- `wrangler.jsonc` — Worker config; every agent needs a Durable Object migration entry.
+- `wrangler.jsonc` — Worker config; every agent needs a Durable Object migration entry. `/agents/*` is in `assets.run_worker_first`.
 
 ## Commands
 
