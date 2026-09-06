@@ -8,6 +8,8 @@ This repo has two layers.
 
 Do not grow `src/flue.ts` into that product. Scaffold a real Flue app with `@flue/cli` on Node 22.19 or newer.
 
+The Cloudflare Worker lives in [`proactive-assistant/`](proactive-assistant/).
+
 ## Run the stub
 
 ```bash

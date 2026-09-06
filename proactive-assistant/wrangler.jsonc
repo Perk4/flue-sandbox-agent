@@ -1,0 +1,13 @@
+{
+	"$schema": "./node_modules/wrangler/config-schema.json",
+	"name": "proactive-assistant",
+	"compatibility_date": "2026-09-01",
+	"compatibility_flags": ["nodejs_compat"],
+	"observability": { "traces": { "enabled": true } },
+	"ai": { "binding": "AI" },
+	// Every agent generates a Durable Object class named after its identity
+	// (Assistant -> FlueAssistantAgent), and Cloudflare requires a migration entry
+	// for each one. Append a new tag when you add an agent:
+	// https://flueframework.com/docs/guide/cloudflare-target/#managing-migrations
+	"migrations": [{ "tag": "v1", "new_sqlite_classes": ["FlueAssistantAgent"] }]
+}

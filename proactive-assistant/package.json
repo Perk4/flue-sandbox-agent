@@ -1,0 +1,28 @@
+{
+	"name": "proactive-assistant",
+	"private": true,
+	"type": "module",
+	"engines": {
+		"node": ">=22.19.0"
+	},
+	"scripts": {
+		"dev": "vite dev",
+		"build": "vite build",
+		"deploy": "vite build && wrangler deploy",
+		"check:types": "tsc --noEmit",
+		"check:admission": "node --experimental-strip-types --disable-warning=ExperimentalWarning scripts/check-admission.ts"
+	},
+	"dependencies": {
+		"@flue/runtime": "^2.0.3",
+		"hono": "^4.7.0"
+	},
+	"devDependencies": {
+		"@cloudflare/vite-plugin": "^1.39.2",
+		"@flue/cli": "^2.0.3",
+		"@flue/vite": "^2.0.3",
+		"@types/node": "^22.10.10",
+		"typescript": "^7.0.2",
+		"vite": "^8.0.14",
+		"wrangler": "^4.113.0"
+	}
+}
