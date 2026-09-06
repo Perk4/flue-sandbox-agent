@@ -141,6 +141,18 @@ test('live-check Review uses Worker dispatch, not a chat signal POST', () => {
 	assert.doesNotMatch(app, /JSON\.stringify\(\{\s*kind:\s*'signal'/);
 });
 
+test('live Stop checks wait for execution before abort', () => {
+	const checkStop = readFileSync(join(srcRoot, '..', 'scripts', 'check-stop.ts'), 'utf8');
+	const signedIn = readFileSync(join(srcRoot, '..', 'scripts', 'check-signed-in-turn.ts'), 'utf8');
+
+	assert.match(checkStop, /waitUntilExecuting\(client, userTurn\.submissionId/);
+	assert.match(checkStop, /requireTool: 'upsertNote'/);
+	assert.match(checkStop, /waitUntilExecuting\(client, review\.submissionId/);
+	assert.match(checkStop, /waitUntilExecuting\(\s*client,\s*occupying\.submissionId/);
+	assert.match(checkStop, /catalogsEqual\(beforeQueued, catalogAfterQueue\)/);
+	assert.match(signedIn, /waitUntilExecuting\(client, inFlight\.submissionId/);
+});
+
 test('/agents/* reaches the Worker before the SPA fallback', () => {
 	const wrangler = readFileSync(join(srcRoot, '..', 'wrangler.jsonc'), 'utf8');
 	const vite = readFileSync(join(srcRoot, '..', 'vite.config.ts'), 'utf8');

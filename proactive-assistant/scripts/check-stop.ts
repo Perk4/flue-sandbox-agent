@@ -1,6 +1,8 @@
 import { createFlueClient, FlueExecutionError } from '@flue/sdk';
 import { instanceIdFor } from '../src/identity.ts';
 import { latestCatalogNotebook, notesInCatalog } from '../src/ui/latest-catalog.ts';
+import type { Notebook } from '../src/notebook.ts';
+import { waitUntilExecuting } from './wait-until-executing.ts';
 
 const baseUrl = process.env.ADMISSION_BASE_URL ?? 'http://localhost:5173';
 const user = process.env.STOP_CHECK_USER ?? `stop${String(Date.now())}`;
@@ -38,10 +40,14 @@ async function signIn(userId: string): Promise<string> {
 	return cookie;
 }
 
-function noteTitles(
+function catalogOf(
 	messages: Awaited<ReturnType<ReturnType<typeof createFlueClient>['history']>>['messages'],
-): string[] {
-	return notesInCatalog(latestCatalogNotebook(messages)).map((entry) => entry.title);
+): Notebook {
+	return latestCatalogNotebook(messages) ?? {};
+}
+
+function catalogsEqual(left: Notebook, right: Notebook): boolean {
+	return JSON.stringify(left) === JSON.stringify(right);
 }
 
 async function expectAborted(
@@ -133,27 +139,32 @@ const keep = await client.send({
 });
 await client.wait(keep, { signal: AbortSignal.timeout(180_000) });
 const afterKeep = await client.history();
-if (!noteTitles(afterKeep.messages).includes('KeepStop')) {
+const keepCatalog = catalogOf(afterKeep.messages);
+if (!notesInCatalog(keepCatalog).some((entry) => entry.title === 'KeepStop' && entry.body === 'saved-keep')) {
 	throw new Error(
-		`AC5 committed Note missing KeepStop after upsert turn; titles=${JSON.stringify(noteTitles(afterKeep.messages))}`,
+		`AC5 committed Note missing KeepStop after upsert turn; titles=${JSON.stringify(notesInCatalog(keepCatalog).map((entry) => entry.title))}`,
 	);
 }
 
 const userTurn = await client.send({
 	message: { kind: 'user', body: SLOW_TURN },
 });
+const ac2Barrier = await waitUntilExecuting(client, userTurn.submissionId, 'AC2 User turn');
 const ac2 = await client.abort();
 if (ac2.aborted !== true) {
 	throw new Error(`AC2 expected { aborted: true }, got ${JSON.stringify(ac2)}`);
 }
 await expectAborted(client, userTurn, 'AC2 User turn');
-console.log(`ac2=aborted submissionId=${userTurn.submissionId}`);
+console.log(`ac2=aborted barrier=${ac2Barrier} submissionId=${userTurn.submissionId}`);
 
 const ghost = await client.send({
 	message: {
 		kind: 'user',
-		body: 'Create a Note titled GhostStop with body should-not-land using upsertNote. First count slowly from one to two hundred in words.',
+		body: 'Immediately call upsertNote to create a Note titled GhostStop with body should-not-land. After the tool is called, keep writing a long essay.',
 	},
+});
+const ac5Barrier = await waitUntilExecuting(client, ghost.submissionId, 'AC5 in-flight upsert', {
+	requireTool: 'upsertNote',
 });
 const ac5 = await client.abort();
 if (ac5.aborted !== true) {
@@ -161,16 +172,22 @@ if (ac5.aborted !== true) {
 }
 await expectAborted(client, ghost, 'AC5 in-flight upsert turn');
 const afterGhost = await client.history();
-const titlesAfterGhost = noteTitles(afterGhost.messages);
-if (!titlesAfterGhost.includes('KeepStop')) {
-	throw new Error(`AC5 committed KeepStop missing after Stop; titles=${JSON.stringify(titlesAfterGhost)}`);
+const catalogAfterGhost = catalogOf(afterGhost.messages);
+if (!notesInCatalog(catalogAfterGhost).some((entry) => entry.title === 'KeepStop')) {
+	throw new Error(
+		`AC5 committed KeepStop missing after Stop; titles=${JSON.stringify(notesInCatalog(catalogAfterGhost).map((entry) => entry.title))}`,
+	);
 }
-if (titlesAfterGhost.includes('GhostStop')) {
+if (notesInCatalog(catalogAfterGhost).some((entry) => entry.title === 'GhostStop')) {
 	throw new Error('AC5 in-flight GhostStop landed after Stop');
 }
-console.log(`ac5=keep-stayed ghost-absent titles=${titlesAfterGhost.join(',')}`);
+if (!catalogsEqual(keepCatalog, catalogAfterGhost)) {
+	throw new Error('AC5 Stop must leave the committed Notebook unchanged');
+}
+console.log(`ac5=keep-stayed ghost-absent barrier=${ac5Barrier}`);
 
 const review = await dispatchReview(cookie);
+const ac3ReviewBarrier = await waitUntilExecuting(client, review.submissionId, 'AC3 Review');
 const joined = await client.send({
 	message: { kind: 'user', body: 'Say only: joined. Do not write notes.' },
 });
@@ -188,12 +205,18 @@ if (settlementOf(afterJoin.settlements, joined.submissionId) !== 'aborted') {
 	throw new Error('AC3 joined send settlement must be aborted');
 }
 console.log(
-	`ac3=review-aborted joined-aborted review=${review.submissionId} joined=${joined.submissionId}`,
+	`ac3=review-aborted joined-aborted barrier=${ac3ReviewBarrier} review=${review.submissionId} joined=${joined.submissionId}`,
 );
 
 const occupying = await client.send({
 	message: { kind: 'user', body: SLOW_TURN },
 });
+const ac4OccupyingBarrier = await waitUntilExecuting(
+	client,
+	occupying.submissionId,
+	'AC4 occupying User turn',
+);
+const beforeQueued = catalogOf((await client.history()).messages);
 const queuedReview = await dispatchReview(cookie);
 const ac4 = await client.abort();
 if (ac4.aborted !== true) {
@@ -205,14 +228,15 @@ const afterQueued = await client.history();
 if (settlementOf(afterQueued.settlements, queuedReview.submissionId) !== 'aborted') {
 	throw new Error('AC4 queued Review settlement must be aborted');
 }
-const titlesAfterQueue = noteTitles(afterQueued.messages);
-if (titlesAfterQueue.includes('GhostStop')) {
-	throw new Error('AC4 queued Review must not land GhostStop');
+const catalogAfterQueue = catalogOf(afterQueued.messages);
+if (!catalogsEqual(beforeQueued, catalogAfterQueue)) {
+	throw new Error(
+		`AC4 queued Review must not change the Notebook: before=${JSON.stringify(beforeQueued)} after=${JSON.stringify(catalogAfterQueue)}`,
+	);
 }
-if (!titlesAfterQueue.includes('KeepStop')) {
-	throw new Error('AC4 must not roll back KeepStop');
-}
-console.log(`ac4=queued-review-aborted review=${queuedReview.submissionId}`);
+console.log(
+	`ac4=queued-review-aborted occupying-barrier=${ac4OccupyingBarrier} review=${queuedReview.submissionId}`,
+);
 
 const idleAfter = await client.abort();
 if (idleAfter.aborted !== false) {

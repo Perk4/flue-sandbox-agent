@@ -1,5 +1,6 @@
 import { createFlueClient, FlueExecutionError } from '@flue/sdk';
 import { instanceIdFor } from '../src/identity.ts';
+import { waitUntilExecuting } from './wait-until-executing.ts';
 
 const baseUrl = process.env.ADMISSION_BASE_URL ?? 'http://localhost:5173';
 const alice = process.env.ADMISSION_USER ?? 'alice';
@@ -191,6 +192,7 @@ if (idleStop.aborted !== false) {
 const inFlight = await client.send({
 	message: { kind: 'user', body: 'Count slowly from one to two hundred in words.' },
 });
+const ac2Barrier = await waitUntilExecuting(client, inFlight.submissionId, 'AC2 User turn');
 const duringTurn = await client.abort();
 if (duringTurn.aborted !== true) {
 	throw new Error(
@@ -228,3 +230,4 @@ console.log(`streamUrl=${admissionBody.streamUrl}`);
 console.log(`submissionId=${admission.submissionId}`);
 console.log(`idleAborted=${String(idleStop.aborted)}`);
 console.log(`duringTurnAborted=${String(duringTurn.aborted)}`);
+console.log(`duringTurnBarrier=${ac2Barrier}`);
