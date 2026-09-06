@@ -1,24 +1,24 @@
-# Build a Flue 2.0 Cloudflare assistant
+# Build a Flue 2.0 Cloudflare Assistant
 
 ## What you are building
 
-You are building a proactive assistant for one signed-in user. It runs on Cloudflare Workers as a Flue 2.0 `'use agent'` function. Each conversation is one SQLite Durable Object named `user-${userId}`.
+You are building a proactive Assistant for one signed-in User. It runs on Cloudflare Workers as a Flue 2.0 `'use agent'` function. There is one Assistant instance per User. Name the Durable Object with `instanceIdFor(userId)`, which returns `user-${userId}`. That string is an address. Origin is `initialData.userId` from the creating send.
 
-The first client is a small web UI with `@flue/react`. It shows cards from `useDataWriter`. The model never sees those `data-*` parts. The assistant runs the Pi harness. It calls tools with `useTool`, loads skills with `useSkill`, and edits notes.
+The first client is a small web UI with `@flue/react`. It shows Cards from `useDataWriter`. The model never sees those `data-*` parts. The Assistant runs the Pi harness. It calls tools with `useTool`, loads skills with `useSkill`, and edits Notes.
 
-Notes are markdown in `usePersistentState`. Large bodies move to R2 later. The user creates and edits those notes. The assistant maintains them on later turns and on a schedule. Skills are the predefined capabilities. An imported `SKILL.md` teaches one procedure. Supporting files on that skill hold templates. Templates shape notes for analysis, search, task tracking, and planning so those jobs stay consistent. Style preferences live in `usePersistentState` on this object. Later turns follow how this user likes notes, tasks, and plans to look.
+Notes are markdown in `usePersistentState`. Large bodies move to R2 later. The User creates and edits those Notes. The Assistant maintains them on later turns and on a Review. Skills are the predefined capabilities. An imported `SKILL.md` teaches one procedure. Supporting files on that skill hold templates. Templates shape Notes for analysis, search, task tracking, and planning so those jobs stay consistent. Style lives in Instruction. There is no prefs key.
 
-Flue has no scheduler. A per-conversation wake uses `export const cloudflare = extend({ base })`, then Agents SDK `this.scheduleEvery(...)`, then `dispatch(Assistant, { id, message })` a signal into the same conversation. A wake can run with no client `POST`.
+Flue has no scheduler. A Review uses `export const cloudflare = extend({ base })`, then Agents SDK `this.scheduleEvery(...)`, then `dispatch(Assistant, { id, message })` a signal into the same Assistant instance. A Review can run with no client `POST`.
 
-This how-to is the work sequence. For hook names, limits, and what not to mix, use [best-practices.md](best-practices.md). For the validated path from client to Durable Object to notes, search, wakes, and later voice, use [data-flow.md](data-flow.md).
+This how-to is the work sequence. For hook names, limits, and what not to mix, use [best-practices.md](best-practices.md). For the validated path from client to Durable Object to Notes, search, Review, and later voice, use [data-flow.md](data-flow.md).
 
 Leave live voice, Vectorize, push notifications, and native iOS until the slices below pass.
 
 ## Decide identity first
 
-Use the authenticated user id as the conversation id: `user-${userId}`. One human maps to one Durable Object. Notes and preferences stay in that object.
+Derive the instance address with `instanceIdFor` from the session User. The result is `user-${userId}`. One User maps to one Assistant instance. Notes stay in that object.
 
-If you later need many threads per user, add a second id scheme and a store that notes can share. Do not start with both.
+If you later need many threads per User, add a second id scheme and a store that Notes can share. Do not start with both.
 
 ## Prerequisites
 
@@ -62,7 +62,7 @@ export function Assistant(_props: AgentProps): string {
 
 Until Workers AI billing is on, use a cheaper `@cf` model. `kimi-k2.6` is 20 requests per minute by default.
 
-Mount with `createAgentRouter`. The conversation id is the next path segment, not a Hono param on the agent function.
+Mount with `createAgentRouter`. The instance address is the next path segment, not a Hono param on the agent function.
 
 ```ts
 import { createAgentRouter } from '@flue/runtime/routing';
@@ -92,13 +92,17 @@ Pass: `POST /agents/assistant/dev-1` with body `{ "kind": "user", "body": "Hello
 
 ## Slice 3. Authenticate before admission
 
-Flue does not authenticate. Anyone who can hit a conversation URL can read history, send, and abort.
+Flue does not authenticate. Anyone who can hit the Assistant URL can read history, send, and abort.
 
-Put Hono middleware on `/agents/assistant/*` before the router mount. Reject a missing session with `401`. Reject a caller whose user id does not match the conversation id with `403`. Issue ids as `user-${userId}` so ownership is an equality check.
+Put Hono middleware on `/agents/assistant/*` before the router mount. Reject a missing session cookie with `401`. Reject a caller whose session User does not match `instanceIdFor` with `403`. Issue addresses as `instanceIdFor(userId)`. The function returns `user-${userId}`. Ownership is an equality check.
 
 After admission, Flue does not keep the original request headers. Authenticate before the Durable Object runs.
 
-Pass: a second token gets `403` on the same URL.
+On the creating send, stamp Origin as `initialData.userId` from the session. Do not parse the instance name.
+
+Reject `kind: 'signal'` on `POST /agents/assistant/:id` with `400`. Session and id stay the ownership check. Body kind is a second admission rule.
+
+Pass: a second cookie identity gets `403` on the same URL, including `GET /:id/attachments/:attachmentId`.
 
 ## Slice 4. Replay with the official client
 
@@ -129,9 +133,9 @@ Pass: you see the model reply after reconnect, not only on the submitting connec
 
 Ship markdown notes only. No charts, dashboards, or search indexes.
 
-- Store the note list in `usePersistentState`.
-- Emit a card with `useDataWriter('note', { schema })`.
-- Create and update notes through one Valibot tool (`input` plus `run({ data, harness })`).
+- Store the Notebook in `usePersistentState`.
+- Emit a Card with `useDataWriter('note', { schema })`.
+- Create and update Notes through one Valibot tool (`input` plus `run({ data, harness })`).
 - Import a `SKILL.md` module and pass it to `useSkill`, or fold always-on style into `useInstruction`.
 
 Do not invent wire parts named `artifact` or `suggestion`. Flue emits `text`, `reasoning`, `dynamic-tool`, and `file`, plus `data-*` writers.
@@ -152,27 +156,29 @@ Pass: a browser sends a message, sees the stream, and opens the note card.
 
 ## Slice 7. R2 for large note bodies
 
-Add an R2 bucket binding in authored `wrangler.jsonc`. Store bytes at `userId/noteId/version`. Keep title, version, and the R2 key in `usePersistentState`.
+Leave this slice until a catalog write, or the Card that copies it, would strain 2 MB. Stay on inlined `body` until then.
 
-Serve downloads through the Worker. Presigned S3 URLs work only on `*.r2.cloudflarestorage.com` and last at most 7 days.
+When it lands, add an R2 bucket binding in authored `wrangler.jsonc`. Put bytes first at `userId/noteId/version`. `userId` is Origin from `useInitialData()`, not a name parse. Then point the Note with `body` XOR `{ version, r2Key }`. Write a non-empty `excerpt` in the same offload. Use `durable: true` and `step.do` for the put. Call `setNotes` after the put so a crash before the batch commits still replays the pointer.
 
-Pass: a note larger than a short markdown string round-trips through R2.
+Serve one object through a cookie-authenticated Worker GET. Prefix comes from the session, not a client `userId`. Do not add a Notebook list GET. Presigned S3 URLs work only on `*.r2.cloudflarestorage.com` and last at most 7 days.
 
-## Slice 8. One scheduled wake
+Pass: a Note larger than a short markdown string round-trips through R2, and a later search cites it from `excerpt`.
 
-Export `cloudflare = extend({ base })` from the agent module. In `onStart`, call `this.scheduleEvery(...)`. From the callback, `dispatch(Assistant, { id, message })` a signal into the same conversation.
+## Slice 8. One scheduled Review
+
+Export `cloudflare = extend({ base })` from the agent module. In `onStart`, call `this.scheduleEvery(...)`. From the callback, `dispatch(Assistant, { id, message })` a signal into the same Assistant instance.
 
 Do not override `fetch`, `onRequest`, `onFiberRecovered`, or `alarm`. Do not add a Worker cron only to reach `scheduleEvery`. A callback that comes due mid-response runs after that response settles. Make the handler idempotent.
 
-Pass: a message appears with no client `POST`. A wake that fires during a turn still lands after the turn.
+Pass: a Review with no client `POST` writes a Note, or stays silent. Chat shows no assistant text on a no-op. A Review that fires during a turn still lands after the turn.
 
 ## Slice 9. Search as a tool
 
-Add `searchRecent` over this user's notes and recent turns. Prefer keyword plus timestamps in the Durable Object.
+Add `searchRecent` as a TypeScript filter over this User's Notebook. Recency is `updatedAt` on Notes. Do not scan recent turns.
 
-Add Vectorize only after that search is too slow. Vectorize writes become queryable on a WAL delay (median under 30 seconds). Do not treat Vectorize as the source of truth for the current conversation.
+Add Vectorize only after that search is too slow. Vectorize writes become queryable on a WAL delay (median under 30 seconds). Do not treat Vectorize as the source of truth for the Notebook.
 
-Pass: the agent cites a note it created in an earlier turn.
+Pass: after an earlier turn's Note has left the prompt, the Assistant cites `{ id, title, updatedAt }` from `searchRecent`.
 
 ## Later work
 
@@ -180,8 +186,8 @@ These are new products. Do not start them until slice 6 is boring and correct.
 
 - **Batch voice in.** Transcribe an uploaded clip with Workers AI, then `dispatch` the transcript as a user message into `Assistant`.
 - **Live voice.** Use `@cloudflare/voice` `withVoice` on an Agents SDK **class**, not on the Flue function. Official defaults are Flux STT and Aura-1 TTS. PCM is 16 kHz mono on the Agents WebSocket. Do not hang that socket on Flue's SSE client.
-- **Native iOS.** One Swift client against the same conversation URL.
-- **Push.** Name APNs or Web Push only when a wake must reach a disconnected phone.
+- **Native iOS.** One Swift client against the same Assistant URL.
+- **Push.** Name APNs or Web Push only when a Review must reach a disconnected phone.
 
 ## Deploy
 

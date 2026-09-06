@@ -8,23 +8,23 @@ A draft that mixed live voice, invented wire parts, and a shared chat WebSocket 
 
 ## Overview
 
-One signed-in human maps to one conversation. That conversation is one SQLite-backed Durable Object. You name the instance `user-${userId}` so ownership is an equality check.
+One signed-in User maps to one Assistant instance. That instance is one SQLite-backed Durable Object. Hono names it with `instanceIdFor`, which returns `user-${userId}`. That string is an address. Origin is `initialData.userId` from the creating send.
 
-The agent is a capitalized `'use agent'` function, `Assistant`. Flue compiles it to class `FlueAssistantAgent` and binding `env.FLUE_ASSISTANT_AGENT`. HTTP lives in `src/app.ts`. The conversation URL is `{mount}/{conversationId}`, conventionally `/agents/assistant/user-123`.
+The agent is a capitalized `'use agent'` function, `Assistant`. Flue compiles it to class `FlueAssistantAgent` and binding `env.FLUE_ASSISTANT_AGENT`. HTTP lives in `src/app.ts`. The Flue URL is `{mount}/{id}`, conventionally `/agents/assistant/user-123`.
 
 A turn is admit, then run. `POST` durably queues a message and returns `202` before the model runs. Flue wakes the object on a zero-delay alarm and executes the full response there. The submitting connection observes. It does not own the work. Live follow is SSE, with long-poll as `live: 'long-poll'`. There is no Flue chat WebSocket.
 
-The first client is a same-origin web UI on `@flue/react`. Notes are markdown only. Search is keyword plus timestamps inside this object. One proactive wake uses Agents SDK `scheduleEvery` via `extend({ base })`, then `dispatch()` a signal into the same conversation.
+The first client is a same-origin web UI on `@flue/react`. Notes are markdown only. Search is a TypeScript filter over the Notebook. One Review uses Agents SDK `scheduleEvery` via `extend({ base })`, then `dispatch()` a signal into the same Assistant instance.
 
 Leave live voice, Vectorize, push, and native iOS until the web loop is boring. Voice is a later, separate Agents WebSocket path. It is not a part type on the Flue stream.
 
 ## Key concepts
 
-**Identity.** The conversation id is a caller-chosen path segment. The storage identity is the agent function name, or an `agentName` static. Renaming `Assistant` without pinning `agentName` is a storage-identity change. Moving the mount path is not.
+**Identity.** The path segment is the instance address. This product derives it with `instanceIdFor` so Hono ownership is an equality check. Origin is `useInitialData().userId`. Do not parse User from the name. The storage identity is the agent function name, or an `agentName` static. Renaming `Assistant` without pinning `agentName` is a storage-identity change. Moving the mount path is not.
 
 **Two HTTP envelopes.** Raw `POST /:id` body is a `DeliveredMessage`. User turns are `{ kind: 'user', body }`. Signals are `{ kind: 'signal', type, body, attributes?, tagName? }`. Optional siblings are `initialData` and `uid`. `@flue/sdk` `send()` takes `{ message: { kind, body } }`. Do not POST the SDK envelope as the raw body. Canonical sources are [Routing](https://flueframework.com/docs/guide/routing/) and [Streaming Protocol](https://flueframework.com/docs/reference/streaming-protocol/). The [migration page](https://flueframework.com/docs/guide/migration/) incorrectly shows the SDK envelope as the wire POST.
 
-**Admission is the trust boundary.** A mounted agent has no auth. Hono middleware on `/agents/assistant/*` runs before `createAgentRouter`. Missing session returns `401`. A caller whose user id does not match the conversation id returns `403`. After admission, Flue forwards a deterministic internal request. Original headers, cookies, query, URL, and body are not replayed into the Durable Object. Authenticate in the Worker, not in the agent function.
+**Admission is the trust boundary.** A mounted agent has no auth. Hono middleware on `/agents/assistant/*` runs before `createAgentRouter`. Missing session cookie returns `401`. A caller whose session User does not match `instanceIdFor` returns `403`. A chat `POST` with `kind: 'signal'` returns `400`. After admission, Flue forwards a deterministic internal request. Original headers, cookies, query, URL, and body are not replayed into the Durable Object. Authenticate in the Worker, not in the agent function. Stamp Origin as `initialData.userId` from the session on the creating send.
 
 **Queue and recovery.** Direct HTTP and `dispatch()` share one per-conversation queue. One submission runs at a time. Disconnect does not cancel. `POST /:id/abort` is conversation-scoped. It records a durable abort intent on every unsettled submission. Aborting the client's `fetch` does not stop agent work. Recovery is conservative. Flue requeues only when it can prove the input was not applied. Unresolved ordinary tool calls are not re-executed. They settle as unknown-outcome errors the model can see. `durable: true` tools plus `step.do` are the exception.
 
@@ -100,33 +100,33 @@ sequenceDiagram
 
 `usePersistentState` is JSON on the instance record log. It is not a SQL table. Reads are a render snapshot. Writes do not post a message, do not wake the agent, and do not re-render mid-run. A write from a tool commits atomically with that tool batch.
 
-`useDataWriter('note', { schema })` returns a write-only function. The first write creates a `data-note` part. Later writes in the same response update that part in place. One writer name is one named part per response, not a list of cards. If a turn can create two notes, write the catalog (an array keyed by id) or accept that the last write wins. Mounting emits nothing. Declare the same writer names on every render or Flue throws. The model never sees these parts. Tell it about notes through tool `output` or instruction text.
+`useDataWriter('note', { schema })` returns a write-only function. The first write creates a `data-note` part. Later writes in the same response update that part in place. One writer name is one named part per response, not a list of cards. If a turn can create two Notes, write the Notebook as that `data-note` part or accept that the last write wins. Mounting emits nothing. Declare the same writer names on every render or Flue throws. The model never sees these parts. Tell it about notes through tool `output` or instruction text.
 
 One Valibot tool covers create and update. `run` must return a string or `{ output?, terminate? }`. A bare object, array, number, boolean, or `null` throws.
 
-**The stream is not the notebook.** `usePersistentState` never appears on the wire. `data-note` parts sit on assistant messages. Compaction can emit `conversation-reset` and drop older cards while the catalog in state is unchanged. A cold `history()` can show an empty notebook that the agent still has. Give the UI a Worker route (or always write the full catalog as `data-note`) so a reload reconstructs the list. Official Flue card examples work because the next turn can fetch an external store. This app has no such store unless you add the route.
+**The stream is not the Notebook.** `usePersistentState` never appears on the wire. `data-note` parts sit on assistant messages. Compaction can emit `conversation-reset`. In Flue 2.0.3 that reset shortens the model prompt and does not drop older Cards from `history()`. Reconstruct the Notebook from the latest catalog-shaped `data-note`. Do not add a Notebook list GET.
 
-**Size.** A Durable Object SQL string, BLOB, or row cannot exceed 2 MB. Keep bodies in persistent state while they are short. Slice 7 moves bytes to R2 at `userId/noteId/version` and keeps title, version, timestamps, a short excerpt, and the R2 key in the catalog. Serve downloads through an authenticated Worker route. S3 presigns work only on `*.r2.cloudflarestorage.com`, last at most 7 days, and do not work on custom domains.
+**Size.** A Durable Object SQL string, BLOB, or row cannot exceed 2 MB. Keep bodies in persistent state while they are short. Slice 7 waits until a catalog write, or the Card that copies it, would strain that limit. Then put bytes at `userId/noteId/version` and point the Note with `body` XOR `{ version, r2Key }` plus a required `excerpt`. Serve one object through a cookie-authenticated Worker GET. S3 presigns work only on `*.r2.cloudflarestorage.com`, last at most 7 days, and do not work on custom domains.
 
-**R2 writes.** Put bytes first under an idempotent key, then point the catalog at that key. Prefer `durable: true` plus `step.do`. An ordinary tool that `put`s then crashes before the batch commits leaves an orphan object. Recovery will not re-run that tool.
+**R2 writes.** Put bytes first under an idempotent key, then point the Notebook at that key. Prefer `durable: true` plus `step.do`. An ordinary tool that `put`s then crashes before the batch commits leaves an orphan object. Recovery will not re-run that tool.
 
 ## Search
 
-First search is a tool, `searchRecent`, over this user's notes inside this Durable Object.
+First search is a tool, `searchRecent`, over this User's Notebook inside this Durable Object.
 
-Keep a searchable catalog in the object: id, title, tags, `updatedAt`, excerpt, and optional R2 key. Filter that list in TypeScript. That is enough for one user and a modest note list.
+Keep a searchable Notebook in the object. Fields are `id`, `title`, `updatedAt`, and `body`. After Slice 7, `body` XOR `{ version, r2Key }` plus a required `excerpt`. Filter that map in TypeScript. That is enough for one User and a modest Note list.
 
 Do not treat `usePersistentState` as a `LIKE` index. If you later query DO SQL yourself, `LIKE` and `GLOB` patterns are capped at 50 bytes.
 
-After bodies move to R2, keyword search cannot see those bytes unless the catalog still holds an excerpt or you fetch objects. A Worker invocation may hold 6 simultaneous outgoing connections waiting for headers. Fan-out to R2 is the wrong search plan.
+After bodies move to R2, keyword search cannot see those bytes unless the Notebook still holds an excerpt or you fetch objects. A Worker invocation may hold 6 simultaneous outgoing connections waiting for headers. Fan-out to R2 is the wrong search plan.
 
-Do not start with Vectorize. Writes become queryable after a WAL delay (median under 30 seconds). It is not the source of truth for the current conversation. Do not add D1. One user already has SQLite in this object.
+Do not start with Vectorize. Writes become queryable after a WAL delay (median under 30 seconds). It is not the source of truth for the Notebook. Do not add D1. One User already has SQLite in this object.
 
-When the list outgrows a JSON array, add narrow app tables through `getCloudflareContext().storage.sql` in the same object. That is still not a source-root `db.ts`.
+When the Notebook outgrows one JSON value, add narrow app tables through `getCloudflareContext().storage.sql` in the same object. That is still not a source-root `db.ts`.
 
-## Proactive wake
+## Review
 
-Flue has no scheduler. A per-conversation wake is Agents SDK scheduling on the generated Durable Object:
+Flue has no scheduler. A Review is Agents SDK scheduling on the generated Durable Object:
 
 ```ts
 import { extend } from '@flue/runtime/cloudflare';
@@ -140,11 +140,11 @@ export const cloudflare = extend({
 			}
 			async heartbeat() {
 				await dispatch(Assistant, {
-					id: /* this conversation id */,
+					id: /* instanceIdFor address */,
 					message: {
 						kind: 'signal',
 						type: 'schedule',
-						body: 'Review recent notes. Write a note if something is useful. Stay quiet otherwise.',
+						body: 'Review recent notes. Prefer a new Note over updating an existing NoteId. Write a note if something is useful. Stay quiet otherwise.',
 					},
 				});
 			}
@@ -166,18 +166,18 @@ sequenceDiagram
   CB->>Q: dispatch signal
   Note over Q: same queue as HTTP POST
   Q->>Asst: runs after any in-flight response settles
-  Asst-->>UI: optional assistant message
+  Asst-->>UI: Card if a Note changed
 ```
 
 A callback that comes due mid-response waits until that response settles. Delivery is durable. Timeliness is not guaranteed while the agent is busy. Alarms are at-least-once. Make the handler idempotent.
 
-`dispatch` bypasses HTTP middleware. That is correct for trusted Worker code. It means every other ingress (cron, a later voice class, an R2 download route) needs its own ownership check. Tools should trust `user-${userId}` parsed from the instance name, not a header that no longer exists.
+`dispatch` bypasses HTTP middleware. That is correct for trusted Worker code. It means every other ingress (cron, a later voice class, an R2 download route) needs its own ownership check. Tools should trust Origin from `useInitialData()`, not a header that no longer exists and not a parse of the instance name. Hono derives the address with `instanceIdFor`.
 
-**Do not make "a chat message appeared" the pass.** A scheduled signal is a submission. It occupies the single runner, renders into the model, and can steer into a live user turn. A useful wake writes or updates a note and stays quiet unless there is something the user should see. `onStart` only runs after the Durable Object exists, so the first `POST` creates it. Proactive work starts after first chat.
+**Do not make "a chat message appeared" the pass.** A scheduled signal is a submission. It occupies the single runner, renders into the model, and can steer into a live User turn. A useful Review writes or updates a Note and stays quiet unless there is something the User should see. `onStart` only runs after the Durable Object exists, so the first `POST` creates it. Review starts after first chat.
 
 Worker `scheduled` in `src/cloudflare.ts` is for app-level cron that must fire whether or not this object is awake. Do not add a cron trigger merely to call `scheduleEvery`. `cloudflare.ts` must not export default `fetch`. HTTP stays in `app.ts`.
 
-Cloudflare has no first-party Web Push or APNs product. A wake can write a chat message. Reaching a locked phone is later, DIY work.
+Cloudflare has no first-party Web Push or APNs product. A Review can write a Note. Reaching a locked phone is later, DIY work.
 
 ## Later voice, a separate path
 
@@ -217,7 +217,7 @@ Word highlighting is not a freebie. Deepgram's own Flux API added per-word `star
 | Canonical conversation stream, settlements, `flue_meta` | DO SQLite (Flue-owned) | Clients see snapshots and update chunks, not raw records |
 | Accepted submissions and abort intents | Same DO SQLite | One terminal outcome per admission: `completed`, `failed`, or `aborted` |
 | Image attachments | DO SQLite plus `GET /:id/attachments/:id` | `file` parts. `url` is resolved client-side |
-| Note catalog (id, title, tags, timestamps, excerpt, R2 key) | `usePersistentState` while small, then optional app SQL in the same DO | Instance-scoped. 2 MB per SQL value |
+| Note (`id`, `title`, `updatedAt`, `body`; later `body` XOR `{ version, r2Key }` plus `excerpt`) | `usePersistentState` while small, then optional app SQL in the same DO | Instance-scoped. 2 MB per SQL value |
 | Large note bodies | R2 `userId/noteId/version` | Serve via Worker. Presign max 7 days on `*.r2.cloudflarestorage.com` |
 | Agents schedules | `cf_agents_schedules` in the same DO | Multiplexed onto one alarm |
 | Vector embeddings | Vectorize, later | WAL delay. Never source of truth for "what I just said" |
@@ -242,12 +242,12 @@ Limits that shape the app: paid 10 GB SQLite per object (free 1 GB per object, 5
 ## Gotchas
 
 1. The [migration page](https://flueframework.com/docs/guide/migration/) shows the SDK envelope as a raw POST. The wire body is `{ kind, body }`.
-2. Auth dies at admission. Put the user id into the conversation id and into `dispatch({ id })`.
-3. Abort is coarse. `POST /:id/abort` kills the running submission and everything queued, including wakes.
-4. One alarm, two tenants. Flue's runner and `scheduleEvery` share it. A wake during a long turn waits.
+2. Auth dies at admission. Stamp Origin on the creating send. Put the `instanceIdFor` address into `dispatch({ id })`.
+3. Abort is coarse. `POST /:id/abort` kills the running submission and everything queued, including Reviews.
+4. One alarm, two tenants. Flue's runner and `scheduleEvery` share it. A Review during a long turn waits.
 5. `useDataWriter` names are identity. Adding or removing a writer between renders throws.
 6. Tool `run` envelope. `{ status: 'ok' }` throws. Return `{ output: { status: 'ok' } }` or `'ok'`.
-7. One `user-${userId}` object is also abort scope, wake scope, search scope, and stream-replay cost. Threads later need a second id scheme and a store notes can share. Do not start with both. Do keep notes user-keyed so they are not trapped in one chat transcript.
+7. One `user-${userId}` object is also abort scope, Review scope, search scope, and stream-replay cost. Threads later need a second id scheme and a store Notes can share. Do not start with both. Keep Notes on Origin so they are not trapped in one chat transcript.
 8. `createCloudflareTracing()` is installed by default. `@flue/opentelemetry` is a separate package that does not configure an exporter.
 9. Flue stamps `flue_meta`. There is no in-place format migration. An older binary will not open a newer Durable Object database.
 10. `kimi-k2.6` needs Workers Paid or AI Gateway credits. Default is 20 requests per minute. Local `wrangler dev` still bills inference.
