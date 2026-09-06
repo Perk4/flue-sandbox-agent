@@ -1,4 +1,4 @@
-import { createFlueClient } from '@flue/sdk';
+import { createFlueClient, FlueExecutionError } from '@flue/sdk';
 import { instanceIdFor } from '../src/identity.ts';
 
 const baseUrl = process.env.ADMISSION_BASE_URL ?? 'http://localhost:5173';
@@ -183,7 +183,48 @@ if (assistantText.length === 0) {
 	throw new Error('reconnect history has no assistant text');
 }
 
+const idleStop = await client.abort();
+if (idleStop.aborted !== false) {
+	throw new Error(`idle Stop expected { aborted: false }, got ${JSON.stringify(idleStop)}`);
+}
+
+const inFlight = await client.send({
+	message: { kind: 'user', body: 'Count slowly from one to two hundred in words.' },
+});
+const duringTurn = await client.abort();
+if (typeof duringTurn.aborted !== 'boolean') {
+	throw new Error('Stop during a User turn must return { aborted: boolean }');
+}
+	if (duringTurn.aborted) {
+	try {
+		await client.wait(inFlight);
+		throw new Error('aborted User turn must not settle completed');
+	} catch (cause) {
+		if (cause instanceof Error && cause.message === 'aborted User turn must not settle completed') {
+			throw cause;
+		}
+		if (!(cause instanceof FlueExecutionError) || cause.failure !== 'aborted') {
+			throw new Error(
+				`Stop during a User turn expected aborted settlement, got ${String(cause)}`,
+			);
+		}
+	}
+}
+
+const afterStop = await reconnect.history();
+const keptText = afterStop.messages
+	.filter((message) => message.role === 'assistant')
+	.flatMap((message) => message.parts)
+	.filter((part) => part.type === 'text')
+	.map((part) => part.text)
+	.join('');
+if (keptText.length === 0) {
+	throw new Error('Stop must leave the earlier completed reply in history');
+}
+
 console.log(`cookie=${aliceSession.cookie.split('=', 1)[0]}`);
 console.log(`address=${instanceIdFor(alice)}`);
 console.log(`streamUrl=${admissionBody.streamUrl}`);
 console.log(`submissionId=${admission.submissionId}`);
+console.log(`idleAborted=${String(idleStop.aborted)}`);
+console.log(`duringTurnAborted=${String(duringTurn.aborted)}`);

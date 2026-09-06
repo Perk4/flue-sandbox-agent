@@ -57,9 +57,26 @@ button {
 }
 
 .meta,
-.empty {
+.empty,
+.hint {
 	color: color-mix(in srgb, CanvasText 65%, Canvas);
 	margin: 0;
+}
+
+.hint {
+	margin-top: 0.5rem;
+	font-size: 0.9rem;
+}
+
+.actions {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 0.5rem;
+}
+
+.toast {
+	margin: 0.5rem 0 0;
+	font-weight: 600;
 }
 
 .panes {

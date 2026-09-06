@@ -1,6 +1,8 @@
 import { useFlueAgent } from '@flue/react';
-import { type FormEvent, useState } from 'react';
+import { createFlueClient } from '@flue/sdk';
+import { type FormEvent, useMemo, useState } from 'react';
 import { instanceIdFor } from '../identity.ts';
+import { stopInstance, toastForAbort } from '../stop.ts';
 import { latestCatalogNotebook, notesInCatalog } from './latest-catalog.ts';
 import {
 	clearStoredUserId,
@@ -110,9 +112,12 @@ function AssistantSession({
 	userId: string;
 }) {
 	const url = assistantUrl(userId);
-	const agent = useFlueAgent({ url });
+	const client = useMemo(() => createFlueClient({ url }), [url]);
+	const agent = useFlueAgent({ client });
 	const [input, setInput] = useState('');
 	const [sendError, setSendError] = useState<unknown>();
+	const [stopToast, setStopToast] = useState<string | undefined>();
+	const [stopping, setStopping] = useState(false);
 	const rows = visibleChatRows(agent.messages);
 	const notebook = latestCatalogNotebook(agent.messages);
 	const notes = notesInCatalog(notebook);
@@ -127,11 +132,26 @@ function AssistantSession({
 		}
 		setInput('');
 		setSendError(undefined);
+		setStopToast(undefined);
 		try {
 			await agent.sendMessage(body);
 		} catch (cause) {
 			setInput(body);
 			setSendError(cause);
+		}
+	}
+
+	async function stop() {
+		setSendError(undefined);
+		setStopping(true);
+		try {
+			const result = await stopInstance(client);
+			setStopToast(toastForAbort(result));
+		} catch (cause) {
+			setStopToast(undefined);
+			setSendError(cause);
+		} finally {
+			setStopping(false);
 		}
 	}
 
@@ -142,9 +162,14 @@ function AssistantSession({
 				<p className="meta">
 					{userId} · {url} · {agent.status}
 				</p>
-				<button onClick={onSignOut} type="button">
-					Sign out
-				</button>
+				<div className="actions">
+					<button disabled={stopping || authFailed} onClick={() => void stop()} type="button">
+						Stop
+					</button>
+					<button onClick={onSignOut} type="button">
+						Sign out
+					</button>
+				</div>
 			</header>
 			<div className="panes">
 				<section className="chat" aria-label="Chat">
@@ -167,6 +192,15 @@ function AssistantSession({
 							Send
 						</button>
 					</form>
+					<p className="hint">
+						Stop ends current work and anything already queued. Saved Notes stay.
+						The hourly look is not off.
+					</p>
+					{stopToast ? (
+						<p className="toast" role="status">
+							{stopToast}
+						</p>
+					) : null}
 					{authFailed ? (
 						<p className="error">
 							Session expired or this User does not own this Assistant.{' '}
