@@ -38,7 +38,7 @@ import searchWriteUp from '../skills/search-write-up/SKILL.md';
 import taskTracking from '../skills/task-tracking/SKILL.md';
 
 export function Assistant(_props: AgentProps): string {
-	useModel('cloudflare/@cf/ibm-granite/granite-4.0-h-micro');
+	useModel('cloudflare/@cf/moonshotai/kimi-k2.6');
 
 	const [notebook, setNotebook] = usePersistentState<Notebook>(
 		NOTEBOOK_STATE_NAME,
