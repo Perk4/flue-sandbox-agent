@@ -2,8 +2,11 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import * as v from 'valibot';
 import {
+	CATALOG_MAX_CHARS,
+	CATALOG_TITLE_MAX_CHARS,
 	EMPTY_NOTEBOOK,
 	NOTEBOOK_STATE_NAME,
+	SQL_VALUE_HEADROOM_BYTES,
 	SQL_VALUE_LIMIT_BYTES,
 	applyUpsert,
 	commitUpsert,
@@ -190,8 +193,24 @@ test('a write that would strain the 2 MB SQL value, including the Card copy, is 
 
 	const small: Notebook = { [ID_A]: note(ID_A, 'Ok', 'short', 1) };
 	assert.equal(notebookWriteFits(small), true);
-	assert.ok(sqlValueBytes(small) < SQL_VALUE_LIMIT_BYTES);
-	assert.ok(sqlValueBytes({ type: 'data-note', data: small }) < SQL_VALUE_LIMIT_BYTES);
+	assert.equal(SQL_VALUE_LIMIT_BYTES, 2_000_000);
+	assert.ok(SQL_VALUE_LIMIT_BYTES < 2 * 1024 * 1024);
+	assert.ok(sqlValueBytes(small) < SQL_VALUE_LIMIT_BYTES - SQL_VALUE_HEADROOM_BYTES);
+	assert.ok(
+		sqlValueBytes({ type: 'data-note', data: small }) <
+			SQL_VALUE_LIMIT_BYTES - SQL_VALUE_HEADROOM_BYTES,
+	);
+
+	const midMiB = 'x'.repeat(2_020_000);
+	assert.throws(
+		() =>
+			applyUpsert(
+				EMPTY_NOTEBOOK,
+				{ title: 'Mid', body: midMiB },
+				{ now: 3, mintId: () => ID_A },
+			),
+		/2 MB SQL value/,
+	);
 });
 
 test('a later listing still sees a Note written earlier', () => {
@@ -208,6 +227,29 @@ test('a later listing still sees a Note written earlier', () => {
 	);
 	assert.match(notebookCatalogLines(later.notebook), new RegExp(`${ID_A} Keep`));
 	assert.match(notebookCatalogLines(later.notebook), new RegExp(`${ID_B} Second`));
+});
+
+test('catalog clips long titles and stays inside the prompt budget', () => {
+	const longTitle = 'T'.repeat(CATALOG_TITLE_MAX_CHARS + 40);
+	const { notebook } = applyUpsert(
+		EMPTY_NOTEBOOK,
+		{ title: longTitle, body: 'x' },
+		{ now: 1, mintId: () => ID_A },
+	);
+	const clipped = notebookCatalogLines(notebook);
+	assert.equal(clipped.includes(longTitle), false);
+	assert.match(clipped, /T{10,}\.\.\./);
+	assert.equal(notebook[ID_A]?.title, longTitle);
+
+	const crowded: Notebook = {};
+	for (let index = 0; index < 80; index += 1) {
+		const hex = index.toString(16).padStart(12, '0');
+		const id = `11111111-1111-4111-8111-${hex}` as NoteId;
+		crowded[id] = note(id, `Title ${String(index)}`, 'b', index);
+	}
+	const catalog = notebookCatalogLines(crowded);
+	assert.ok(catalog.length <= CATALOG_MAX_CHARS + 40);
+	assert.match(catalog, /\.\.\.and \d+ more\./);
 });
 
 test('the Notebook state name is notebook, not prefs', () => {

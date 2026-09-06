@@ -23,8 +23,17 @@ export type UpsertNoteOutput = {
 	updatedAt: number;
 };
 
-/** Durable Object SQL string/BLOB/row cap. A catalog write and its Card copy each must fit. */
-export const SQL_VALUE_LIMIT_BYTES = 2 * 1024 * 1024;
+/** Cloudflare Durable Object SQL string/BLOB/row cap. Decimal 2 MB, not 2 MiB. */
+export const SQL_VALUE_LIMIT_BYTES = 2_000_000;
+
+/** Room for Flue record envelopes around the catalog JSON and the Card copy. */
+export const SQL_VALUE_HEADROOM_BYTES = 4 * 1024;
+
+/** Prompt catalog: clip each title so one long string cannot blow the context. */
+export const CATALOG_TITLE_MAX_CHARS = 80;
+
+/** Prompt catalog: keep the interpolated Notebook listing bounded. */
+export const CATALOG_MAX_CHARS = 4_000;
 
 /** The one `usePersistentState` name. There is no prefs key. */
 export const NOTEBOOK_STATE_NAME = 'notebook';
@@ -60,9 +69,10 @@ export function sqlValueBytes(value: unknown): number {
 
 /** True when the Notebook JSON and the `data-note` Card copy both stay under 2 MB. */
 export function notebookWriteFits(notebook: Notebook): boolean {
+	const budget = SQL_VALUE_LIMIT_BYTES - SQL_VALUE_HEADROOM_BYTES;
 	const catalogBytes = sqlValueBytes(notebook);
 	const cardBytes = sqlValueBytes({ type: 'data-note', data: notebook });
-	return catalogBytes < SQL_VALUE_LIMIT_BYTES && cardBytes < SQL_VALUE_LIMIT_BYTES;
+	return catalogBytes < budget && cardBytes < budget;
 }
 
 function asNoteId(id: string): NoteId {
@@ -129,12 +139,34 @@ export function commitUpsert(input: UpsertNoteInput, writer: NotebookWriter): Up
 	return output;
 }
 
+function clipCatalogTitle(title: string): string {
+	if (title.length <= CATALOG_TITLE_MAX_CHARS) {
+		return title;
+	}
+	return `${title.slice(0, CATALOG_TITLE_MAX_CHARS - 3)}...`;
+}
+
 export function notebookCatalogLines(notebook: Notebook): string {
-	const notes = Object.values(notebook);
+	const notes = Object.values(notebook).sort((left, right) => right.updatedAt - left.updatedAt);
 	if (notes.length === 0) {
 		return 'The Notebook is empty.';
 	}
-	return notes
-		.map((note) => `- ${note.id} ${note.title} (updated ${String(note.updatedAt)})`)
-		.join('\n');
+
+	const lines: string[] = [];
+	let used = 0;
+	for (const entry of notes) {
+		const line = `- ${entry.id} ${clipCatalogTitle(entry.title)} (updated ${String(entry.updatedAt)})`;
+		const next = used === 0 ? line.length : used + 1 + line.length;
+		if (next > CATALOG_MAX_CHARS) {
+			break;
+		}
+		lines.push(line);
+		used = next;
+	}
+
+	const hidden = notes.length - lines.length;
+	if (hidden > 0) {
+		lines.push(`...and ${String(hidden)} more.`);
+	}
+	return lines.join('\n');
 }
