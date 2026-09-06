@@ -10,11 +10,15 @@
 		"build": "vite build",
 		"deploy": "vite build && wrangler deploy",
 		"check:types": "tsc --noEmit",
-		"check:admission": "node --experimental-strip-types --disable-warning=ExperimentalWarning scripts/check-admission.ts"
+		"test": "node --experimental-strip-types --disable-warning=ExperimentalWarning --test src/admission.test.ts",
+		"check:admission": "node --experimental-strip-types --disable-warning=ExperimentalWarning scripts/check-signed-in-turn.ts",
+		"check:signed-in": "node --experimental-strip-types --disable-warning=ExperimentalWarning scripts/check-signed-in-turn.ts"
 	},
 	"dependencies": {
 		"@flue/runtime": "^2.0.3",
-		"hono": "^4.7.0"
+		"@flue/sdk": "^2.0.3",
+		"hono": "^4.7.0",
+		"valibot": "^1.1.0"
 	},
 	"devDependencies": {
 		"@cloudflare/vite-plugin": "^1.39.2",
