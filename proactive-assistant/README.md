@@ -14,6 +14,16 @@ The Assistant uses Workers AI (`cloudflare/@cf/...`). No provider API key is req
 
 Copy a long random string into `.dev.vars` as `SESSION_SECRET=...`. That file is gitignored.
 
+The first client is a same-origin page. Sign in, then send a message. `useFlueAgent({ url })` uses the session cookie; there is no Bearer token and no CORS.
+
+```sh
+npm run dev
+```
+
+Open http://localhost:5173, sign in as `alice`, and send a message. Chat shows visible User and Assistant text. The notes panel reads the latest catalog-shaped `data-note` Card, not the last reply.
+
+`/agents/*` is in `assets.run_worker_first` so the SPA fallback does not swallow admission.
+
 ## Sign in
 
 `POST /session` with `{ "userId": "alice" }` sets an HttpOnly `session` cookie. SameSite is Strict. Path is `/`. The body is `{ "address": "user-alice" }`.

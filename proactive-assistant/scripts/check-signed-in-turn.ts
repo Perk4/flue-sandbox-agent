@@ -66,6 +66,16 @@ async function expectStatus(
 	return response;
 }
 
+const home = await fetch(baseUrl);
+const homeType = home.headers.get('content-type') ?? '';
+if (home.status !== 200 || !homeType.includes('text/html')) {
+	throw new Error(`GET / expected the Assistant page HTML, got ${String(home.status)} ${homeType}`);
+}
+const homeHtml = await home.text();
+if (!/Assistant|root/.test(homeHtml)) {
+	throw new Error('GET / must serve the same-origin Assistant page');
+}
+
 const aliceSession = await signIn(alice);
 const bobSession = await signIn(bob);
 const aliceUrl = `${baseUrl}/agents/assistant/${instanceIdFor(alice)}`;
@@ -74,11 +84,29 @@ const abortUrl = `${aliceUrl}/abort`;
 const historyUrl = aliceUrl;
 const streamUrl = `${aliceUrl}?view=updates&offset=-1`;
 
-await expectStatus(aliceUrl, {
+const swallowed = await expectStatus(aliceUrl, {
 	method: 'POST',
-	headers: { 'content-type': 'application/json' },
+	headers: {
+		'content-type': 'application/json',
+		accept: 'text/html',
+		'sec-fetch-mode': 'navigate',
+	},
 	body: JSON.stringify({ kind: 'user', body: 'Hello' }),
 }, 401, 'send without cookie');
+const swallowedType = swallowed.headers.get('content-type') ?? '';
+if (!swallowedType.includes('application/json')) {
+	throw new Error(`SPA fallback must not swallow admission: got ${swallowedType}`);
+}
+const navigateGet = await expectStatus(
+	aliceUrl,
+	{ headers: { accept: 'text/html', 'sec-fetch-mode': 'navigate' } },
+	401,
+	'history without cookie as navigate',
+);
+const navigateType = navigateGet.headers.get('content-type') ?? '';
+if (!navigateType.includes('application/json')) {
+	throw new Error(`GET /agents/* as navigate must reach the Worker, not SPA HTML: ${navigateType}`);
+}
 
 await expectStatus(historyUrl, { method: 'GET' }, 401, 'history without cookie');
 await expectStatus(streamUrl, { method: 'GET' }, 401, 'stream without cookie');

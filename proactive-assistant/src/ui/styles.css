@@ -1,0 +1,119 @@
+:root {
+	color-scheme: light dark;
+	font-family: ui-sans-serif, system-ui, sans-serif;
+	line-height: 1.45;
+}
+
+* {
+	box-sizing: border-box;
+}
+
+body {
+	margin: 0;
+}
+
+.shell {
+	max-width: 72rem;
+	margin: 0 auto;
+	padding: 1.25rem;
+}
+
+.sign-in form,
+.composer {
+	display: flex;
+	gap: 0.5rem;
+	align-items: end;
+}
+
+label {
+	display: flex;
+	flex-direction: column;
+	gap: 0.25rem;
+	flex: 1;
+}
+
+input {
+	flex: 1;
+	padding: 0.5rem 0.6rem;
+}
+
+button {
+	padding: 0.5rem 0.9rem;
+}
+
+.top {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: baseline;
+	justify-content: space-between;
+	gap: 0.75rem;
+	margin-bottom: 1rem;
+}
+
+.top h1,
+.sign-in h1,
+.notes h2 {
+	margin: 0 0 0.35rem;
+}
+
+.meta,
+.empty {
+	color: color-mix(in srgb, CanvasText 65%, Canvas);
+	margin: 0;
+}
+
+.panes {
+	display: grid;
+	grid-template-columns: minmax(0, 1.4fr) minmax(16rem, 1fr);
+	gap: 1rem;
+}
+
+@media (max-width: 48rem) {
+	.panes {
+		grid-template-columns: 1fr;
+	}
+}
+
+.chat,
+.notes {
+	border: 1px solid color-mix(in srgb, CanvasText 18%, Canvas);
+	border-radius: 0.5rem;
+	padding: 0.85rem;
+	min-height: 24rem;
+}
+
+.log {
+	display: flex;
+	flex-direction: column;
+	gap: 0.75rem;
+	min-height: 16rem;
+	margin-bottom: 0.85rem;
+}
+
+.row p,
+.notes pre {
+	margin: 0.25rem 0 0;
+	white-space: pre-wrap;
+}
+
+.notes ul {
+	list-style: none;
+	padding: 0;
+	margin: 0;
+	display: flex;
+	flex-direction: column;
+	gap: 0.85rem;
+}
+
+.notes h3 {
+	margin: 0;
+	font-size: 1rem;
+}
+
+.error {
+	color: #b42318;
+}
+
+.error button {
+	margin-left: 0.35rem;
+}

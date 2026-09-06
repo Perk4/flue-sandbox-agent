@@ -32,6 +32,29 @@ test('Assistant mounts upsertNote, Instruction, and Skills without prefs or read
 	assert.equal((assistant.match(/usePersistentState<Notebook>/g) ?? []).length, 1);
 });
 
+test('same-origin Assistant page uses useFlueAgent({ url }) with no token', () => {
+	const page = readSrc('ui/assistant-page.tsx');
+	assert.match(page, /useFlueAgent\(\{\s*url\s*\}\)/);
+	assert.doesNotMatch(page, /\btoken\b/);
+	assert.doesNotMatch(page, /createFlueClient/);
+	assert.match(page, /visibleChatRows\(/);
+	assert.match(page, /latestCatalogNotebook\(/);
+	assert.match(page, /clearStoredUserId/);
+	assert.match(page, /Sign in again/);
+	assert.match(page, /Sign out/);
+});
+
+test('/agents/* reaches the Worker before the SPA fallback', () => {
+	const wrangler = readFileSync(join(srcRoot, '..', 'wrangler.jsonc'), 'utf8');
+	const vite = readFileSync(join(srcRoot, '..', 'vite.config.ts'), 'utf8');
+	const app = readSrc('app.ts');
+
+	assert.match(wrangler, /"not_found_handling":\s*"single-page-application"/);
+	assert.match(wrangler, /"run_worker_first":\s*\[\s*"\/agents\/\*"/);
+	assert.doesNotMatch(app, /cors|Access-Control-Allow-Origin/);
+	assert.match(vite, /plugins:\s*\[flue\(\),\s*react\(\),\s*cloudflare\(/);
+});
+
 test('skill directories match mounted jobs and carry templates', () => {
 	const skills = [
 		['analysis', 'ANALYSIS.md'],

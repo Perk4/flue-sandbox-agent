@@ -4,10 +4,14 @@
 		"module": "ESNext",
 		"moduleResolution": "Bundler",
 		"lib": [
-			"ESNext"
+			"ESNext",
+			"DOM",
+			"DOM.Iterable"
 		],
+		"jsx": "react-jsx",
 		"types": [
-			"node"
+			"node",
+			"vite/client"
 		],
 		"allowImportingTsExtensions": true,
 		"verbatimModuleSyntax": true,
