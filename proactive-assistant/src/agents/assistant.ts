@@ -1,13 +1,16 @@
 'use agent';
 import {
 	type AgentProps,
+	dispatch,
 	useDataWriter,
+	useDelivery,
 	useInstruction,
 	useModel,
 	usePersistentState,
 	useSkill,
 	useTool,
 } from '@flue/runtime';
+import { extend, type CloudflareAgentLike } from '@flue/runtime/cloudflare';
 import * as v from 'valibot';
 import {
 	EMPTY_NOTEBOOK,
@@ -22,6 +25,13 @@ import {
 	upsertNoteOutput,
 	type Notebook,
 } from '../notebook.ts';
+import {
+	REVIEW_INTERVAL_SECONDS,
+	instanceNameOf,
+	reviewInstructions,
+	runHeartbeat,
+	type ReviewAgentState,
+} from '../review.ts';
 import analysis from '../skills/analysis/SKILL.md';
 import planning from '../skills/planning/SKILL.md';
 import searchWriteUp from '../skills/search-write-up/SKILL.md';
@@ -66,7 +76,7 @@ export function Assistant(_props: AgentProps): string {
 	useSkill(searchWriteUp);
 	useSkill(taskTracking);
 	useSkill(planning);
-	useInstruction('You keep notes for this user. Prefer short replies.');
+	useInstruction(reviewInstructions(useDelivery()));
 
 	return `You keep notes for this user. Prefer short replies. Use upsertNote to create or update Notes. Omit id to create. Pass a known uuid to update. When a Note is missing from this listing, call searchRecent. Cite a Note as id, title, and updatedAt from searchRecent. Do not cite chat turns as Notes.
 
@@ -75,3 +85,35 @@ ${notebookCatalogLines(notebook)}`;
 }
 
 Assistant.initialData = v.object({ userId: v.string() });
+
+type AssistantHost = CloudflareAgentLike<ReviewAgentState> & {
+	name: string;
+	heartbeat(): Promise<void>;
+};
+
+export const cloudflare = extend({
+	base: (Base) => {
+		class ReviewTimer extends (Base as unknown as new (...args: unknown[]) => AssistantHost) {
+			async onStart() {
+				await this.scheduleEvery(REVIEW_INTERVAL_SECONDS, 'heartbeat');
+			}
+
+			async heartbeat() {
+				await runHeartbeat(
+					{
+						name: instanceNameOf(this),
+						state: this.state,
+						setState: (next) => {
+							this.setState({ ...this.state, lastScheduleAt: next.lastScheduleAt });
+						},
+					},
+					async (request) => {
+						await dispatch(Assistant, request);
+					},
+					Date.now(),
+				);
+			}
+		}
+		return ReviewTimer as unknown as typeof Base;
+	},
+});

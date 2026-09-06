@@ -46,7 +46,7 @@ A missing or forged cookie is `401`. A cookie for another User on this URL is `4
 
 A `202` with `streamUrl`, `offset`, and `submissionId` means the turn was admitted. `npm run check:signed-in` signs in and asserts that lock.
 
-The Assistant stores the Notebook in durable instance state. One tool, `upsertNote`, creates or updates a Note. A create or update stamps the full Notebook as a `data-note` Card. `searchRecent` filters that Notebook by recency (`updatedAt`) and returns `{ id, title, updatedAt }`. It does not scan chat. Style is Instruction. Skills for analysis, search write-up, task tracking, and planning load when the job matches.
+The Assistant stores the Notebook in durable instance state. One tool, `upsertNote`, creates or updates a Note. A create or update stamps the full Notebook as a `data-note` Card. `searchRecent` filters that Notebook by recency (`updatedAt`) and returns `{ id, title, updatedAt }`. It does not scan chat. After the first chat, this instance runs an hourly Review (`scheduleEvery` plus `dispatch` of a `kind: 'signal'` `type: 'schedule'` message). A useful look may write a Note and a Card. A no-op writes no Card and no assistant text. Chat `POST` of a signal is `400`. Style is Instruction. Skills for analysis, search write-up, task tracking, and planning load when the job matches.
 
 ## Develop
 

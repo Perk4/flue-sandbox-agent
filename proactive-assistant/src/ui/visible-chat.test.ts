@@ -103,3 +103,28 @@ test('empty assistant rows do not appear as chat', () => {
 		['u1', 'ok'],
 	);
 });
+
+test('a diagnostic row in history is not visible chat', () => {
+	const rows = visibleChatRows([
+		message({
+			id: 'diag',
+			role: 'assistant',
+			display: 'diagnostic',
+			parts: [{ type: 'text', text: 'Nothing to update.', state: 'done' }],
+		}),
+	]);
+	assert.equal(rows.length, 0);
+});
+
+test('visible Nothing to update. is a fail for a no-op Review', () => {
+	const rows = visibleChatRows([
+		message({
+			id: 'noop',
+			role: 'assistant',
+			display: 'visible',
+			parts: [{ type: 'text', text: 'Nothing to update.', state: 'done' }],
+		}),
+	]);
+	assert.equal(rows.length, 1);
+	assert.equal(textOf(rows[0]!), 'Nothing to update.');
+});

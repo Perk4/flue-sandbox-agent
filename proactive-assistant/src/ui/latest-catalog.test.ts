@@ -57,6 +57,20 @@ test('a no-op later message does not blank the notes panel', () => {
 	assert.equal(notesInCatalog(notebook)[0]?.title, 'Todo');
 });
 
+test('a lastScheduleAt fire stamp is not a catalog Card', () => {
+	const notebook = latestCatalogNotebook([
+		message('card', [{ type: 'data-note', data: firstCatalog }]),
+		message('stamp', [{ type: 'text', text: '', state: 'done' }], 'diagnostic'),
+	]);
+	assert.deepEqual(notebook, firstCatalog);
+	assert.equal(
+		latestCatalogNotebook([
+			message('stamp-only', [{ type: 'text', text: '', state: 'done' }], 'diagnostic'),
+		]),
+		undefined,
+	);
+});
+
 test('a non-catalog data-note is ignored', () => {
 	const notebook = latestCatalogNotebook([
 		message('card', [{ type: 'data-note', data: firstCatalog }]),

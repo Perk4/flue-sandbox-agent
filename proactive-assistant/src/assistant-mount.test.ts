@@ -22,7 +22,7 @@ test('Assistant mounts upsertNote, Instruction, and Skills without prefs or read
 	assert.match(assistant, /searchRecent\(notebook/);
 	assert.match(assistant, /Cite a Note as id, title, and updatedAt from searchRecent/);
 	assert.match(assistant, /useInstruction\(/);
-	assert.match(assistant, /Prefer short replies/);
+	assert.match(assistant, /reviewInstructions\(/);
 	assert.match(assistant, /useSkill\(analysis\)/);
 	assert.match(assistant, /useSkill\(searchWriteUp\)/);
 	assert.match(assistant, /useSkill\(taskTracking\)/);
@@ -33,6 +33,49 @@ test('Assistant mounts upsertNote, Instruction, and Skills without prefs or read
 	assert.doesNotMatch(assistant, /usePersistentState\(['"]prefs['"]/);
 	assert.doesNotMatch(notebook, /usePersistentState\(['"]prefs['"]/);
 	assert.equal((assistant.match(/usePersistentState<Notebook>/g) ?? []).length, 1);
+});
+
+test('Review is an instance timer: scheduleEvery, dispatch this.name, no Worker cron', () => {
+	const assistant = readSrc('agents/assistant.ts');
+	const review = readSrc('review.ts');
+	const worker = readSrc('cloudflare.ts');
+	const wrangler = readFileSync(join(srcRoot, '..', 'wrangler.jsonc'), 'utf8');
+
+	assert.match(assistant, /export const cloudflare = extend\(/);
+	assert.match(assistant, /from '@flue\/runtime\/cloudflare'/);
+	assert.match(assistant, /async onStart\(/);
+	assert.match(assistant, /this\.scheduleEvery\(REVIEW_INTERVAL_SECONDS, 'heartbeat'\)/);
+	assert.match(assistant, /async heartbeat\(/);
+	assert.match(assistant, /dispatch\(Assistant,/);
+	assert.match(assistant, /instanceNameOf\(this\)/);
+	assert.match(assistant, /runHeartbeat\(/);
+	assert.match(assistant, /useDelivery\(\)/);
+	assert.match(assistant, /reviewInstructions\(/);
+	assert.match(assistant, /name: 'upsertNote'/);
+	assert.match(review, /REVIEW_SIGNAL_BODY/);
+	assert.match(review, /never a raw User id/);
+
+	assert.doesNotMatch(assistant, /async fetch\(/);
+	assert.doesNotMatch(assistant, /async onRequest\(/);
+	assert.doesNotMatch(assistant, /async onFiberRecovered\(/);
+	assert.doesNotMatch(assistant, /async alarm\(/);
+	assert.doesNotMatch(assistant, /id:\s*['"]alice['"]/);
+	assert.doesNotMatch(assistant, /dispatch\(Assistant,\s*\{\s*id:\s*userId/);
+	assert.doesNotMatch(wrangler, /"crons"/);
+	assert.doesNotMatch(wrangler, /"triggers"/);
+	assert.doesNotMatch(worker, /async scheduled/);
+	assert.doesNotMatch(worker, /export default/);
+	assert.doesNotMatch(worker, /dispatch\(/);
+});
+
+test('upsertNote stays mounted on a Review and after a User joins', () => {
+	const assistant = readSrc('agents/assistant.ts');
+	const upsertIndex = assistant.indexOf("name: 'upsertNote'");
+	const deliveryIndex = assistant.indexOf('useDelivery()');
+	assert.ok(upsertIndex > 0);
+	assert.ok(deliveryIndex > upsertIndex);
+	assert.doesNotMatch(assistant, /if\s*\(\s*(?:review|isScheduleReview)/);
+	assert.doesNotMatch(assistant, /unmount|removeTool/);
 });
 
 test('searchRecent does not walk chat, object storage, Vectorize, or D1', () => {
