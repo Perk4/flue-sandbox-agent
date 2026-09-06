@@ -23,6 +23,17 @@ export type UpsertNoteOutput = {
 	updatedAt: number;
 };
 
+export type SearchRecentInput = {
+	query?: string;
+	limit?: number;
+};
+
+export type SearchRecentHit = {
+	id: NoteId;
+	title: string;
+	updatedAt: number;
+};
+
 /** Cloudflare Durable Object SQL string/BLOB/row cap. Decimal 2 MB, not 2 MiB. */
 export const SQL_VALUE_LIMIT_BYTES = 2_000_000;
 
@@ -34,6 +45,12 @@ export const CATALOG_TITLE_MAX_CHARS = 80;
 
 /** Prompt catalog: keep the interpolated Notebook listing bounded. */
 export const CATALOG_MAX_CHARS = 4_000;
+
+/** Default number of recency hits returned to the model. */
+export const SEARCH_RECENT_DEFAULT_LIMIT = 8;
+
+/** Cap so one search cannot dump the whole Notebook into the prompt. */
+export const SEARCH_RECENT_MAX_LIMIT = 20;
 
 /** The one `usePersistentState` name. There is no prefs key. */
 export const NOTEBOOK_STATE_NAME = 'notebook';
@@ -62,6 +79,21 @@ export const upsertNoteOutput = v.object({
 	title: v.string(),
 	updatedAt: v.number(),
 });
+
+export const searchRecentHitSchema = v.object({
+	id: noteIdSchema,
+	title: v.string(),
+	updatedAt: v.number(),
+});
+
+export const searchRecentInput = v.object({
+	query: v.optional(v.string()),
+	limit: v.optional(
+		v.pipe(v.number(), v.integer(), v.minValue(1), v.maxValue(SEARCH_RECENT_MAX_LIMIT)),
+	),
+});
+
+export const searchRecentOutput = v.array(searchRecentHitSchema);
 
 export function sqlValueBytes(value: unknown): number {
 	return new TextEncoder().encode(JSON.stringify(value)).byteLength;
@@ -169,4 +201,40 @@ export function notebookCatalogLines(notebook: Notebook): string {
 		lines.push(`...and ${String(hidden)} more.`);
 	}
 	return lines.join('\n');
+}
+
+function noteMatchesQuery(note: Note, query: string): boolean {
+	const needle = query.trim().toLowerCase();
+	if (needle.length === 0) {
+		return true;
+	}
+	return (
+		note.id.toLowerCase().includes(needle) ||
+		note.title.toLowerCase().includes(needle) ||
+		note.body.toLowerCase().includes(needle)
+	);
+}
+
+/**
+ * TypeScript filter over this User's Notebook. Recency is `updatedAt`.
+ * Reads the render snapshot: same-batch search after an upsert can miss
+ * the Note just written. Does not walk chat, fetch object storage, or
+ * query Vectorize / D1.
+ */
+export function searchRecent(
+	notebook: Notebook,
+	input: SearchRecentInput = {},
+): SearchRecentHit[] {
+	const requested = input.limit ?? SEARCH_RECENT_DEFAULT_LIMIT;
+	const limit = Math.min(Math.max(1, requested), SEARCH_RECENT_MAX_LIMIT);
+	const query = input.query ?? '';
+	return Object.values(notebook)
+		.filter((entry) => noteMatchesQuery(entry, query))
+		.sort((left, right) => right.updatedAt - left.updatedAt)
+		.slice(0, limit)
+		.map((entry) => ({
+			id: entry.id,
+			title: entry.title,
+			updatedAt: entry.updatedAt,
+		}));
 }
