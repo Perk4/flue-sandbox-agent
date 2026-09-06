@@ -15,6 +15,9 @@ import {
 	commitUpsert,
 	notebookCardSchema,
 	notebookCatalogLines,
+	searchRecent,
+	searchRecentInput,
+	searchRecentOutput,
 	upsertNoteInput,
 	upsertNoteOutput,
 	type Notebook,
@@ -46,13 +49,26 @@ export function Assistant(_props: AgentProps): string {
 		},
 	});
 
+	useTool({
+		name: 'searchRecent',
+		description:
+			"Find Notes in this User's Notebook by recency (updatedAt). Optional query matches id, title, or body. Returns { id, title, updatedAt } only. Does not scan chat. Cite a Note from this output, not from earlier turns.",
+		input: searchRecentInput,
+		output: searchRecentOutput,
+		run({ data }) {
+			return {
+				output: searchRecent(notebook, data),
+			};
+		},
+	});
+
 	useSkill(analysis);
 	useSkill(searchWriteUp);
 	useSkill(taskTracking);
 	useSkill(planning);
 	useInstruction('You keep notes for this user. Prefer short replies.');
 
-	return `You keep notes for this user. Prefer short replies. Use upsertNote to create or update Notes. Omit id to create. Pass a known uuid to update.
+	return `You keep notes for this user. Prefer short replies. Use upsertNote to create or update Notes. Omit id to create. Pass a known uuid to update. When a Note is missing from this listing, call searchRecent. Cite a Note as id, title, and updatedAt from searchRecent. Do not cite chat turns as Notes.
 
 Notebook:
 ${notebookCatalogLines(notebook)}`;

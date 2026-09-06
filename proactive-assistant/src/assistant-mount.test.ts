@@ -18,6 +18,9 @@ test('Assistant mounts upsertNote, Instruction, and Skills without prefs or read
 	assert.match(assistant, /NOTEBOOK_STATE_NAME/);
 	assert.match(assistant, /useDataWriter\('note'/);
 	assert.match(assistant, /name: 'upsertNote'/);
+	assert.match(assistant, /name: 'searchRecent'/);
+	assert.match(assistant, /searchRecent\(notebook/);
+	assert.match(assistant, /Cite a Note as id, title, and updatedAt from searchRecent/);
 	assert.match(assistant, /useInstruction\(/);
 	assert.match(assistant, /Prefer short replies/);
 	assert.match(assistant, /useSkill\(analysis\)/);
@@ -30,6 +33,24 @@ test('Assistant mounts upsertNote, Instruction, and Skills without prefs or read
 	assert.doesNotMatch(assistant, /usePersistentState\(['"]prefs['"]/);
 	assert.doesNotMatch(notebook, /usePersistentState\(['"]prefs['"]/);
 	assert.equal((assistant.match(/usePersistentState<Notebook>/g) ?? []).length, 1);
+});
+
+test('searchRecent does not walk chat, object storage, Vectorize, or D1', () => {
+	const assistant = readSrc('agents/assistant.ts');
+	const notebook = readSrc('notebook.ts');
+
+	assert.match(notebook, /export function searchRecent\(\s*notebook: Notebook/);
+	assert.match(assistant, /searchRecent\(notebook,/);
+	assert.doesNotMatch(assistant, /env\.(VECTORIZE|DB|R2|BUCKET)/);
+	assert.doesNotMatch(notebook, /env\.(VECTORIZE|DB|R2|BUCKET)/);
+	assert.doesNotMatch(assistant, /from ['"]cloudflare:workers['"]/);
+	assert.doesNotMatch(notebook, /from ['"]cloudflare:workers['"]/);
+	assert.doesNotMatch(assistant, /\.history\(/);
+	assert.doesNotMatch(notebook, /\.history\(/);
+	assert.doesNotMatch(assistant, /getCloudflareContext/);
+	assert.doesNotMatch(notebook, /getCloudflareContext/);
+	assert.doesNotMatch(assistant, /recentTurns|chatTurns|messages\.filter/);
+	assert.doesNotMatch(notebook, /recentTurns|chatTurns|messages\.filter/);
 });
 
 test('same-origin Assistant page uses useFlueAgent({ url }) with no token', () => {
