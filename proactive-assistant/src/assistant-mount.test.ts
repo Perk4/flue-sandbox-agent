@@ -149,7 +149,9 @@ test('live Stop checks wait for execution before abort', () => {
 	assert.match(checkStop, /requireTool: 'upsertNote'/);
 	assert.match(checkStop, /waitUntilExecuting\(client, review\.submissionId/);
 	assert.match(checkStop, /waitUntilExecuting\(\s*client,\s*occupying\.submissionId/);
+	assert.match(checkStop, /notebookSnapshot\(beforeQueued\)/);
 	assert.match(checkStop, /catalogsEqual\(beforeQueued, catalogAfterQueue\)/);
+	assert.match(checkStop, /assistantWorkOf\(afterQueued\.messages, queuedReview\.submissionId\)/);
 	assert.match(signedIn, /waitUntilExecuting\(client, inFlight\.submissionId/);
 });
 

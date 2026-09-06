@@ -31,3 +31,30 @@ export function notesInCatalog(notebook: Notebook | undefined): Note[] {
 	}
 	return Object.values(notebook).sort((left, right) => right.updatedAt - left.updatedAt);
 }
+
+export type NotebookSnapshotEntry = {
+	id: string;
+	title: string;
+	body: string;
+	updatedAt: number;
+};
+
+/**
+ * Every Note in the catalog, sorted by id. Live Stop checks compare this
+ * around a queued Review so a differently titled Note or a KeepStop mutation
+ * cannot hide behind a GhostStop title check.
+ */
+export function notebookSnapshot(notebook: Notebook): NotebookSnapshotEntry[] {
+	return notesInCatalog(notebook)
+		.map((entry) => ({
+			id: entry.id,
+			title: entry.title,
+			body: entry.body,
+			updatedAt: entry.updatedAt,
+		}))
+		.sort((left, right) => left.id.localeCompare(right.id));
+}
+
+export function notebooksEqual(left: Notebook, right: Notebook): boolean {
+	return JSON.stringify(notebookSnapshot(left)) === JSON.stringify(notebookSnapshot(right));
+}

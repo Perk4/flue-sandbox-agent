@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import type { FlueConversationMessage } from '@flue/sdk';
-import { executionBarrierOf, isExecutionChunk } from './execution-barrier.ts';
+import { assistantWorkOf, executionBarrierOf, isExecutionChunk } from './execution-barrier.ts';
 
 function assistant(
 	submissionId: string,
@@ -83,5 +83,54 @@ test('stream chunks for another submission are not this turn starting', () => {
 			'upsertNote',
 		),
 		'tool-input:upsertNote',
+	);
+});
+
+test('queued Review work is tools, catalog Cards, or text — not an empty shell', () => {
+	assert.equal(assistantWorkOf([assistant('sub_q', [])], 'sub_q'), undefined);
+	assert.equal(
+		assistantWorkOf(
+			[assistant('sub_q', [{ type: 'text', text: '', state: 'done' }])],
+			'sub_q',
+		),
+		undefined,
+	);
+	assert.equal(
+		assistantWorkOf(
+			[assistant('sub_q', [{ type: 'text', text: 'looked', state: 'streaming' }])],
+			'sub_q',
+		),
+		'text',
+	);
+	assert.equal(
+		assistantWorkOf(
+			[
+				assistant('sub_q', [
+					{
+						type: 'dynamic-tool',
+						toolName: 'upsertNote',
+						toolCallId: 't1',
+						state: 'input-available',
+						input: {},
+					},
+				]),
+			],
+			'sub_q',
+		),
+		'tool:upsertNote',
+	);
+	assert.equal(
+		assistantWorkOf(
+			[assistant('sub_q', [{ type: 'data-note', data: { keep: true } }])],
+			'sub_q',
+		),
+		'data-note',
+	);
+	assert.equal(
+		assistantWorkOf(
+			[assistant('other', [{ type: 'text', text: 'KeepStop', state: 'done' }])],
+			'sub_q',
+		),
+		undefined,
 	);
 });

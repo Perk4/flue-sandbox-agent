@@ -33,6 +33,34 @@ export function executionBarrierOf(
 	return 'message-started';
 }
 
+/**
+ * Work a submission actually produced: tool, catalog Card, or text.
+ * An empty aborted assistant shell is not work — a queued Review can
+ * exist without having run that look.
+ */
+export function assistantWorkOf(
+	messages: readonly FlueConversationMessage[],
+	submissionId: string,
+): string | undefined {
+	for (const message of messages) {
+		if (message.submissionId !== submissionId || message.role !== 'assistant') {
+			continue;
+		}
+		for (const part of message.parts) {
+			if (part.type === 'dynamic-tool') {
+				return `tool:${part.toolName}`;
+			}
+			if (part.type === 'data-note') {
+				return 'data-note';
+			}
+			if (part.type === 'text' && part.text.length > 0) {
+				return 'text';
+			}
+		}
+	}
+	return undefined;
+}
+
 export function isExecutionChunk(
 	chunk: ConversationStreamChunk,
 	submissionId: string,

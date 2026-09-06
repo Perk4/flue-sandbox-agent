@@ -1,6 +1,12 @@
 import { createFlueClient, FlueExecutionError } from '@flue/sdk';
 import { instanceIdFor } from '../src/identity.ts';
-import { latestCatalogNotebook, notesInCatalog } from '../src/ui/latest-catalog.ts';
+import { assistantWorkOf } from '../src/execution-barrier.ts';
+import {
+	latestCatalogNotebook,
+	notebookSnapshot,
+	notebooksEqual,
+	notesInCatalog,
+} from '../src/ui/latest-catalog.ts';
 import type { Notebook } from '../src/notebook.ts';
 import { waitUntilExecuting } from './wait-until-executing.ts';
 
@@ -47,7 +53,7 @@ function catalogOf(
 }
 
 function catalogsEqual(left: Notebook, right: Notebook): boolean {
-	return JSON.stringify(left) === JSON.stringify(right);
+	return notebooksEqual(left, right);
 }
 
 async function expectAborted(
@@ -216,7 +222,9 @@ const ac4OccupyingBarrier = await waitUntilExecuting(
 	occupying.submissionId,
 	'AC4 occupying User turn',
 );
-const beforeQueued = catalogOf((await client.history()).messages);
+const beforeQueuedHistory = await client.history();
+const beforeQueued = catalogOf(beforeQueuedHistory.messages);
+const beforeQueuedSnapshot = notebookSnapshot(beforeQueued);
 const queuedReview = await dispatchReview(cookie);
 const ac4 = await client.abort();
 if (ac4.aborted !== true) {
@@ -229,13 +237,18 @@ if (settlementOf(afterQueued.settlements, queuedReview.submissionId) !== 'aborte
 	throw new Error('AC4 queued Review settlement must be aborted');
 }
 const catalogAfterQueue = catalogOf(afterQueued.messages);
+const afterQueuedSnapshot = notebookSnapshot(catalogAfterQueue);
 if (!catalogsEqual(beforeQueued, catalogAfterQueue)) {
 	throw new Error(
-		`AC4 queued Review must not change the Notebook: before=${JSON.stringify(beforeQueued)} after=${JSON.stringify(catalogAfterQueue)}`,
+		`AC4 queued Review must not change the Notebook: before=${JSON.stringify(beforeQueuedSnapshot)} after=${JSON.stringify(afterQueuedSnapshot)}`,
 	);
 }
+const queuedWork = assistantWorkOf(afterQueued.messages, queuedReview.submissionId);
+if (queuedWork !== undefined) {
+	throw new Error(`AC4 queued Review must not execute that look, saw ${queuedWork}`);
+}
 console.log(
-	`ac4=queued-review-aborted occupying-barrier=${ac4OccupyingBarrier} review=${queuedReview.submissionId}`,
+	`ac4=queued-review-aborted occupying-barrier=${ac4OccupyingBarrier} review=${queuedReview.submissionId} notebook=${JSON.stringify(afterQueuedSnapshot)}`,
 );
 
 const idleAfter = await client.abort();
