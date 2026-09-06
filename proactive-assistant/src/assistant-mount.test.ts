@@ -122,7 +122,23 @@ test('same-origin Assistant page uses the official client abort on this instance
 	assert.doesNotMatch(assistant, /cancelSchedule/);
 	assert.doesNotMatch(page, /retry this Review|retryThisReview/i);
 	assert.doesNotMatch(page, /this reply only/i);
+	assert.doesNotMatch(page, /\/check\/review/);
 	assert.match(assistant, /this\.scheduleEvery\(REVIEW_INTERVAL_SECONDS, 'heartbeat'\)/);
+	assert.match(assistant, /commitUpsert\(data, \{ setNotebook, writeNote \}, signal\)/);
+});
+
+test('live-check Review uses Worker dispatch, not a chat signal POST', () => {
+	const app = readSrc('app.ts');
+	const wrangler = readFileSync(join(srcRoot, '..', 'wrangler.jsonc'), 'utf8');
+
+	assert.match(app, /app\.post\('\/check\/review'/);
+	assert.match(
+		app,
+		/dispatch\(\s*Assistant,\s*reviewDispatchRequest\(instanceIdFor\(credential\.userId\)\)/,
+	);
+	assert.match(app, /LIVE_STOP_CHECK/);
+	assert.match(wrangler, /"\/check\/\*"/);
+	assert.doesNotMatch(app, /JSON\.stringify\(\{\s*kind:\s*'signal'/);
 });
 
 test('/agents/* reaches the Worker before the SPA fallback', () => {
@@ -131,7 +147,8 @@ test('/agents/* reaches the Worker before the SPA fallback', () => {
 	const app = readSrc('app.ts');
 
 	assert.match(wrangler, /"not_found_handling":\s*"single-page-application"/);
-	assert.match(wrangler, /"run_worker_first":\s*\[\s*"\/agents\/\*"/);
+	assert.match(wrangler, /"\/agents\/\*"/);
+	assert.match(wrangler, /"\/check\/\*"/);
 	assert.doesNotMatch(app, /cors|Access-Control-Allow-Origin/);
 	assert.match(vite, /plugins:\s*\[flue\(\),\s*react\(\),\s*cloudflare\(/);
 });

@@ -192,22 +192,22 @@ const inFlight = await client.send({
 	message: { kind: 'user', body: 'Count slowly from one to two hundred in words.' },
 });
 const duringTurn = await client.abort();
-if (typeof duringTurn.aborted !== 'boolean') {
-	throw new Error('Stop during a User turn must return { aborted: boolean }');
+if (duringTurn.aborted !== true) {
+	throw new Error(
+		`AC2 Stop during a User turn expected { aborted: true }, got ${JSON.stringify(duringTurn)}`,
+	);
 }
-	if (duringTurn.aborted) {
-	try {
-		await client.wait(inFlight);
-		throw new Error('aborted User turn must not settle completed');
-	} catch (cause) {
-		if (cause instanceof Error && cause.message === 'aborted User turn must not settle completed') {
-			throw cause;
-		}
-		if (!(cause instanceof FlueExecutionError) || cause.failure !== 'aborted') {
-			throw new Error(
-				`Stop during a User turn expected aborted settlement, got ${String(cause)}`,
-			);
-		}
+try {
+	await client.wait(inFlight);
+	throw new Error('aborted User turn must not settle completed');
+} catch (cause) {
+	if (cause instanceof Error && cause.message === 'aborted User turn must not settle completed') {
+		throw cause;
+	}
+	if (!(cause instanceof FlueExecutionError) || cause.failure !== 'aborted') {
+		throw new Error(
+			`Stop during a User turn expected aborted settlement, got ${String(cause)}`,
+		);
 	}
 }
 

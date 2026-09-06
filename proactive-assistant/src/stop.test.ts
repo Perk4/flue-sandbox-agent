@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { applyUpsert, EMPTY_NOTEBOOK, type NoteId } from './notebook.ts';
+import { applyUpsert, commitUpsert, EMPTY_NOTEBOOK, type NoteId } from './notebook.ts';
 import { REVIEW_INTERVAL_SECONDS } from './review.ts';
 import { stopInstance, STOPPED_TOAST, toastForAbort, type StopAbort } from './stop.ts';
 
@@ -69,11 +69,30 @@ test('a committed Note stays after Stop; an in-flight upsert does not land', asy
 		{ now: 10, mintId: () => ID_A },
 	);
 	let notebook = committed.notebook;
-	const inFlight = { title: 'Ghost', body: 'should not land' };
+	let wrote = false;
+	const abort = new AbortController();
+	abort.abort();
 
 	await stopInstance(abortClient({ aborted: true }, []));
-	// Abort never applies an unfinished updater. No rollback of saved Notes.
-	void inFlight;
+	assert.throws(
+		() =>
+			commitUpsert(
+				{ title: 'Ghost', body: 'should not land' },
+				{
+					setNotebook: (updater) => {
+						notebook = updater(notebook);
+					},
+					writeNote: () => {
+						wrote = true;
+					},
+					now: () => 11,
+					mintId: () => '22222222-2222-4222-8222-222222222222',
+				},
+				abort.signal,
+			),
+		/upsertNote aborted/,
+	);
+	assert.equal(wrote, false);
 	assert.equal(notebook[ID_A]?.body, 'saved');
 	assert.equal(Object.keys(notebook).length, 1);
 

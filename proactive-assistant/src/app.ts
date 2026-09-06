@@ -1,3 +1,4 @@
+import { dispatch } from '@flue/runtime';
 import { createAgentRouter } from '@flue/runtime/routing';
 import { Hono } from 'hono';
 import type { Context, Next } from 'hono';
@@ -10,9 +11,10 @@ import {
 } from './admission.ts';
 import { Assistant } from './agents/assistant.ts';
 import { instanceIdFor, parseUserId } from './identity.ts';
+import { reviewDispatchRequest } from './review.ts';
 import { SESSION_COOKIE, sessionCookieOptions } from './session.ts';
 
-type Env = { Bindings: { SESSION_SECRET: string } };
+type Env = { Bindings: { SESSION_SECRET: string; LIVE_STOP_CHECK?: string } };
 
 const assistantRouter = new Hono().route('/agents/assistant', createAgentRouter(Assistant));
 
@@ -134,5 +136,31 @@ app.post('/session', async (c) => {
 
 app.use('/agents/assistant/*', gate);
 app.route('/', assistantRouter);
+
+/**
+ * Live-check only. Same `dispatch()` the hourly heartbeat uses — not a chat
+ * POST of a schedule signal (that stays 400) and not a UI “retry this Review”
+ * control. Cookie ownership still applies. Production omits LIVE_STOP_CHECK.
+ */
+app.post('/check/review', async (c) => {
+	if (c.env.LIVE_STOP_CHECK !== '1') {
+		return c.json({ error: 'not found' }, 404);
+	}
+	const secret = secretFrom(c);
+	if (secret === undefined) {
+		return c.json({ error: 'missing SESSION_SECRET' }, 500);
+	}
+	const credential = credentialFromSignedValue(
+		await getSignedCookie(c, secret, SESSION_COOKIE),
+	);
+	if (credential.tag !== 'authenticated') {
+		return c.json({ error: denyMessage(401, credential) }, 401);
+	}
+	const receipt = await dispatch(
+		Assistant,
+		reviewDispatchRequest(instanceIdFor(credential.userId)),
+	);
+	return c.json(receipt, 202);
+});
 
 export default app;

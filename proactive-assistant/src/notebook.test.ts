@@ -146,6 +146,34 @@ test('a create or update writes the full Notebook as the Card payload', () => {
 	assert.equal(card?.[ID_A]?.body, 'new');
 });
 
+test('an aborted upsert does not write the Notebook or a Card', () => {
+	let store: Notebook = { [ID_A]: note(ID_A, 'Keep', 'saved', 1) };
+	let wrote = false;
+	const abort = new AbortController();
+	abort.abort();
+	assert.throws(
+		() =>
+			commitUpsert(
+				{ title: 'Ghost', body: 'should not land' },
+				{
+					setNotebook: (updater) => {
+						store = updater(store);
+					},
+					writeNote: () => {
+						wrote = true;
+					},
+					now: () => 2,
+					mintId: () => ID_B,
+				},
+				abort.signal,
+			),
+		/upsertNote aborted/,
+	);
+	assert.equal(wrote, false);
+	assert.equal(store[ID_A]?.body, 'saved');
+	assert.equal(Object.keys(store).length, 1);
+});
+
 test('unknown id does not write a Card', () => {
 	let store: Notebook = { [ID_A]: note(ID_A, 'Keep', 'me', 1) };
 	let wrote = false;
