@@ -96,16 +96,33 @@ test('searchRecent does not walk chat, object storage, Vectorize, or D1', () => 
 	assert.doesNotMatch(notebook, /recentTurns|chatTurns|messages\.filter/);
 });
 
-test('same-origin Assistant page uses useFlueAgent({ url }) with no token', () => {
+test('same-origin Assistant page uses the official client abort on this instance', () => {
 	const page = readSrc('ui/assistant-page.tsx');
-	assert.match(page, /useFlueAgent\(\{\s*url\s*\}\)/);
+	const stop = readSrc('stop.ts');
+	const assistant = readSrc('agents/assistant.ts');
+
+	assert.match(page, /createFlueClient\(\{\s*url\s*\}\)/);
+	assert.match(page, /useFlueAgent\(\{\s*client\s*\}\)/);
+	assert.match(page, /stopInstance\(client\)/);
+	assert.match(page, /toastForAbort\(/);
+	assert.match(page, /type="button">\s*Stop\s*<\/button>/);
+	assert.match(page, /disabled=\{stopping \|\| authFailed\}/);
 	assert.doesNotMatch(page, /\btoken\b/);
-	assert.doesNotMatch(page, /createFlueClient/);
 	assert.match(page, /visibleChatRows\(/);
 	assert.match(page, /latestCatalogNotebook\(/);
 	assert.match(page, /clearStoredUserId/);
 	assert.match(page, /Sign in again/);
 	assert.match(page, /Sign out/);
+
+	assert.match(stop, /client\.abort\(/);
+	assert.match(stop, /POST \/:id\/abort/);
+	assert.doesNotMatch(stop, /submissionId/);
+	assert.doesNotMatch(stop, /cancelSchedule/);
+	assert.doesNotMatch(page, /cancelSchedule/);
+	assert.doesNotMatch(assistant, /cancelSchedule/);
+	assert.doesNotMatch(page, /retry this Review|retryThisReview/i);
+	assert.doesNotMatch(page, /this reply only/i);
+	assert.match(assistant, /this\.scheduleEvery\(REVIEW_INTERVAL_SECONDS, 'heartbeat'\)/);
 });
 
 test('/agents/* reaches the Worker before the SPA fallback', () => {
