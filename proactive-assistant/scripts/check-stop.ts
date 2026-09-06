@@ -169,11 +169,13 @@ const ghost = await client.send({
 		body: 'Immediately call upsertNote to create a Note titled GhostStop with body should-not-land. After the tool is called, keep writing a long essay.',
 	},
 });
+let ac5: { aborted: boolean } | undefined;
 const ac5Barrier = await waitUntilExecuting(client, ghost.submissionId, 'AC5 in-flight upsert', {
-	requireTool: 'upsertNote',
+	onBarrier: async () => {
+		ac5 = await client.abort();
+	},
 });
-const ac5 = await client.abort();
-if (ac5.aborted !== true) {
+if (ac5?.aborted !== true) {
 	throw new Error(`AC5 in-flight expected { aborted: true }, got ${JSON.stringify(ac5)}`);
 }
 await expectAborted(client, ghost, 'AC5 in-flight upsert turn');

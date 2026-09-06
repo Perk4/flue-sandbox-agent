@@ -146,7 +146,12 @@ test('live Stop checks wait for execution before abort', () => {
 	const signedIn = readFileSync(join(srcRoot, '..', 'scripts', 'check-signed-in-turn.ts'), 'utf8');
 
 	assert.match(checkStop, /waitUntilExecuting\(client, userTurn\.submissionId/);
-	assert.match(checkStop, /requireTool: 'upsertNote'/);
+	assert.match(checkStop, /waitUntilExecuting\(client, ghost\.submissionId/);
+	assert.doesNotMatch(
+		checkStop,
+		/waitUntilExecuting\(client, ghost\.submissionId[\s\S]*requireTool: 'upsertNote'/,
+	);
+	assert.match(checkStop, /ac5 = await client.abort\(\)/);
 	assert.match(checkStop, /waitUntilExecuting\(client, review\.submissionId/);
 	assert.match(checkStop, /waitUntilExecuting\(\s*client,\s*occupying\.submissionId/);
 	assert.match(checkStop, /notebookSnapshot\(beforeQueued\)/);

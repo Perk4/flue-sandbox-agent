@@ -7,12 +7,17 @@ import {
 /**
  * Wait until Flue has started running this submission — not merely admitted it.
  * Cancelling the observer does not Stop the Assistant; that is `abort()`.
+ * `onBarrier` runs before this promise resolves so Stop can race the runner.
  */
 export async function waitUntilExecuting(
 	client: FlueClient,
 	submissionId: string,
 	label: string,
-	options: { requireTool?: string; timeoutMs?: number } = {},
+	options: {
+		requireTool?: string;
+		timeoutMs?: number;
+		onBarrier?: (barrier: ExecutionBarrier) => Promise<void>;
+	} = {},
 ): Promise<ExecutionBarrier> {
 	const observation = client.observe({ live: 'sse' });
 	const timeout = AbortSignal.timeout(options.timeoutMs ?? 90_000);
@@ -62,15 +67,29 @@ export async function waitUntilExecuting(
 				return undefined;
 			};
 
+			const hit = (barrier: ExecutionBarrier) => {
+				finish(() => {
+					const hook = options.onBarrier;
+					if (hook === undefined) {
+						resolve(barrier);
+						return;
+					}
+					void hook(barrier).then(
+						() => resolve(barrier),
+						(cause: unknown) => reject(cause),
+					);
+				});
+			};
+
 			unsubscribe = observation.subscribe(() => {
 				const barrier = inspect();
 				if (barrier !== undefined) {
-					finish(() => resolve(barrier));
+					hit(barrier);
 				}
 			});
 			const immediate = inspect();
 			if (immediate !== undefined) {
-				finish(() => resolve(immediate));
+				hit(immediate);
 			}
 		});
 	} finally {
