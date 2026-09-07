@@ -12,7 +12,7 @@ Standing Flue / Cloudflare Assistant harness. Parent epic: [#3 Scaffold the v1 C
 
 | Issue | Title | Status |
 |-------|--------|--------|
-| [#3](https://github.com/Perk4/flue-sandbox-agent/issues/3) | Scaffold the v1 Cloudflare Assistant | parent epic — wrap pending |
+| [#3](https://github.com/Perk4/flue-sandbox-agent/issues/3) | Scaffold the v1 Cloudflare Assistant | done (closed) |
 | [#4](https://github.com/Perk4/flue-sandbox-agent/issues/4) | Hello Assistant URL | done (PR #11) |
 | [#5](https://github.com/Perk4/flue-sandbox-agent/issues/5) | Signed-in User turn | done (PR #12) |
 | [#6](https://github.com/Perk4/flue-sandbox-agent/issues/6) | Durable Notebook | done (PR #14) |
@@ -25,7 +25,7 @@ Builder order complete: **#6 → #7 → #8 → #9 → #10** all shipped.
 
 ## NOW
 
-_None._ Builder idle. Epic #3 wrap pending CoS/Perk (close epic vs wrap ticket).
+_None._ Epic #3 closed. Builder idle until next interview/NOW.
 
 ## Retired
 
