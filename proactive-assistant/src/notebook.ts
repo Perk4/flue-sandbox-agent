@@ -153,10 +153,24 @@ export type NotebookWriter = {
 /**
  * Apply one upsert through the updater form so two creates in one response
  * cannot drop each other, then stamp the full Notebook as the `note` Card.
+ *
+ * Flue commits `usePersistentState` with the tool batch. An abort that
+ * already fired must not apply the updater: a committed Note stays, and an
+ * in-flight upsert does not land. Pass the tool `signal`.
  */
-export function commitUpsert(input: UpsertNoteInput, writer: NotebookWriter): UpsertNoteOutput {
+export function commitUpsert(
+	input: UpsertNoteInput,
+	writer: NotebookWriter,
+	signal?: AbortSignal,
+): UpsertNoteOutput {
+	if (signal?.aborted) {
+		throw new Error('upsertNote aborted');
+	}
 	let output: UpsertNoteOutput | undefined;
 	writer.setNotebook((previous) => {
+		if (signal?.aborted) {
+			throw new Error('upsertNote aborted');
+		}
 		const result = applyUpsert(previous, input, {
 			now: (writer.now ?? Date.now)(),
 			mintId: writer.mintId ?? crypto.randomUUID.bind(crypto),

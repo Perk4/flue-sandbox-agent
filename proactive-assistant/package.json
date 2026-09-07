@@ -12,7 +12,8 @@
 		"check:types": "tsc --noEmit",
 		"test": "node --experimental-strip-types --disable-warning=ExperimentalWarning --test src/*.test.ts src/ui/*.test.ts",
 		"check:admission": "node --experimental-strip-types --disable-warning=ExperimentalWarning scripts/check-signed-in-turn.ts",
-		"check:signed-in": "node --experimental-strip-types --disable-warning=ExperimentalWarning scripts/check-signed-in-turn.ts"
+		"check:signed-in": "node --experimental-strip-types --disable-warning=ExperimentalWarning scripts/check-signed-in-turn.ts",
+		"check:stop": "node --experimental-strip-types --disable-warning=ExperimentalWarning scripts/check-stop.ts"
 	},
 	"dependencies": {
 		"@flue/react": "^2.0.3",

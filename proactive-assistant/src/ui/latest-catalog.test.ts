@@ -2,7 +2,12 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import type { FlueConversationMessage } from '@flue/sdk';
 import type { Note, NoteId, Notebook } from '../notebook.ts';
-import { latestCatalogNotebook, notesInCatalog } from './latest-catalog.ts';
+import {
+	latestCatalogNotebook,
+	notebookSnapshot,
+	notebooksEqual,
+	notesInCatalog,
+} from './latest-catalog.ts';
 
 const ID_A = '11111111-1111-4111-8111-111111111111' as NoteId;
 const ID_B = '22222222-2222-4222-8222-222222222222' as NoteId;
@@ -82,4 +87,25 @@ test('a non-catalog data-note is ignored', () => {
 		]),
 	]);
 	assert.deepEqual(notebook, firstCatalog);
+});
+
+test('notebook snapshot compares every Note, not just GhostStop titles', () => {
+	assert.deepEqual(notebookSnapshot(laterCatalog), [
+		{ id: ID_A, title: 'Todo', body: 'buy milk', updatedAt: 10 },
+		{ id: ID_B, title: 'Ship', body: 'flue', updatedAt: 20 },
+	]);
+	assert.equal(notebooksEqual(firstCatalog, firstCatalog), true);
+	assert.equal(notebooksEqual(firstCatalog, laterCatalog), false);
+	const mutatedKeep: Notebook = {
+		[ID_A]: note(ID_A, 'KeepStop', 'mutated', 11),
+	};
+	const keep: Notebook = {
+		[ID_A]: note(ID_A, 'KeepStop', 'saved-keep', 10),
+	};
+	assert.equal(notebooksEqual(keep, mutatedKeep), false);
+	const otherTitle: Notebook = {
+		[ID_A]: note(ID_A, 'KeepStop', 'saved-keep', 10),
+		[ID_B]: note(ID_B, 'ReviewStop', 'looked', 30),
+	};
+	assert.equal(notebooksEqual(keep, otherTitle), false);
 });

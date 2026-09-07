@@ -52,9 +52,9 @@ export function Assistant(_props: AgentProps): string {
 			"Create or update one markdown Note in this User's Notebook. Omit id to create and mint a uuid. Pass a known Note id to update that Note. An unknown id fails and does not insert. Returns id, title, and updatedAt.",
 		input: upsertNoteInput,
 		output: upsertNoteOutput,
-		run({ data }) {
+		run({ data, signal }) {
 			return {
-				output: commitUpsert(data, { setNotebook, writeNote }),
+				output: commitUpsert(data, { setNotebook, writeNote }, signal),
 			};
 		},
 	});

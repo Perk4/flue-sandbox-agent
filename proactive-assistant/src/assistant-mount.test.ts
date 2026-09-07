@@ -122,7 +122,42 @@ test('same-origin Assistant page uses the official client abort on this instance
 	assert.doesNotMatch(assistant, /cancelSchedule/);
 	assert.doesNotMatch(page, /retry this Review|retryThisReview/i);
 	assert.doesNotMatch(page, /this reply only/i);
+	assert.doesNotMatch(page, /\/check\/review/);
 	assert.match(assistant, /this\.scheduleEvery\(REVIEW_INTERVAL_SECONDS, 'heartbeat'\)/);
+	assert.match(assistant, /commitUpsert\(data, \{ setNotebook, writeNote \}, signal\)/);
+});
+
+test('live-check Review uses Worker dispatch, not a chat signal POST', () => {
+	const app = readSrc('app.ts');
+	const wrangler = readFileSync(join(srcRoot, '..', 'wrangler.jsonc'), 'utf8');
+
+	assert.match(app, /app\.post\('\/check\/review'/);
+	assert.match(
+		app,
+		/dispatch\(\s*Assistant,\s*reviewDispatchRequest\(instanceIdFor\(credential\.userId\)\)/,
+	);
+	assert.match(app, /LIVE_STOP_CHECK/);
+	assert.match(wrangler, /"\/check\/\*"/);
+	assert.doesNotMatch(app, /JSON\.stringify\(\{\s*kind:\s*'signal'/);
+});
+
+test('live Stop checks wait for execution before abort', () => {
+	const checkStop = readFileSync(join(srcRoot, '..', 'scripts', 'check-stop.ts'), 'utf8');
+	const signedIn = readFileSync(join(srcRoot, '..', 'scripts', 'check-signed-in-turn.ts'), 'utf8');
+
+	assert.match(checkStop, /waitUntilExecuting\(client, userTurn\.submissionId/);
+	assert.match(checkStop, /waitUntilExecuting\(client, ghost\.submissionId/);
+	assert.doesNotMatch(
+		checkStop,
+		/waitUntilExecuting\(client, ghost\.submissionId[\s\S]*requireTool: 'upsertNote'/,
+	);
+	assert.match(checkStop, /ac5 = await client.abort\(\)/);
+	assert.match(checkStop, /waitUntilExecuting\(client, review\.submissionId/);
+	assert.match(checkStop, /waitUntilExecuting\(\s*client,\s*occupying\.submissionId/);
+	assert.match(checkStop, /notebookSnapshot\(beforeQueued\)/);
+	assert.match(checkStop, /catalogsEqual\(beforeQueued, catalogAfterQueue\)/);
+	assert.match(checkStop, /assistantWorkOf\(afterQueued\.messages, queuedReview\.submissionId\)/);
+	assert.match(signedIn, /waitUntilExecuting\(client, inFlight\.submissionId/);
 });
 
 test('/agents/* reaches the Worker before the SPA fallback', () => {
@@ -131,7 +166,8 @@ test('/agents/* reaches the Worker before the SPA fallback', () => {
 	const app = readSrc('app.ts');
 
 	assert.match(wrangler, /"not_found_handling":\s*"single-page-application"/);
-	assert.match(wrangler, /"run_worker_first":\s*\[\s*"\/agents\/\*"/);
+	assert.match(wrangler, /"\/agents\/\*"/);
+	assert.match(wrangler, /"\/check\/\*"/);
 	assert.doesNotMatch(app, /cors|Access-Control-Allow-Origin/);
 	assert.match(vite, /plugins:\s*\[flue\(\),\s*react\(\),\s*cloudflare\(/);
 });
